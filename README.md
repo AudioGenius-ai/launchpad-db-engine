@@ -1,10 +1,12 @@
 # @launchpad/db-engine
 
 [![CI](https://github.com/AudioGenius-ai/launchpad-db-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/AudioGenius-ai/launchpad-db-engine/actions/workflows/ci.yml)
-[![npm version](https://badge.fury.io/js/@launchpad%2Fdb-engine.svg)](https://www.npmjs.com/package/@launchpad/db-engine)
+[![codecov](https://codecov.io/gh/AudioGenius-ai/launchpad-db-engine/graph/badge.svg)](https://codecov.io/gh/AudioGenius-ai/launchpad-db-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Custom database engine with built-in multi-tenancy, migrations, and type generation. Built for BaaS (Backend-as-a-Service) platforms.
+
+**191 tests** (173 unit + 18 integration) | Node.js 18+ | PostgreSQL, MySQL, SQLite
 
 ## Features
 
