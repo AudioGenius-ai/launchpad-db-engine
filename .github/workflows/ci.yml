@@ -70,7 +70,7 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.ENABLE_NPM_PUBLISH == 'true'
 
     steps:
       - uses: actions/checkout@v4
