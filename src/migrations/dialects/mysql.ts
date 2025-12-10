@@ -1,4 +1,9 @@
-import type { ColumnType, ColumnDefinition, TableDefinition, IndexDefinition } from '../../types/index.js';
+import type {
+  ColumnDefinition,
+  ColumnType,
+  IndexDefinition,
+  TableDefinition,
+} from '../../types/index.js';
 import type { Dialect } from './types.js';
 
 export const mysqlDialect: Dialect = {
@@ -51,7 +56,7 @@ export const mysqlDialect: Dialect = {
     }
 
     if (def.primaryKey && def.primaryKey.length > 1) {
-      columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map(c => `\`${c}\``).join(', ')})`);
+      columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map((c) => `\`${c}\``).join(', ')})`);
     }
 
     for (const [colName, colDef] of Object.entries(def.columns)) {
@@ -112,7 +117,7 @@ export const mysqlDialect: Dialect = {
   createIndex(table: string, index: IndexDefinition): string {
     const indexName = index.name || `idx_${table}_${index.columns.join('_')}`;
     const unique = index.unique ? 'UNIQUE ' : '';
-    const columns = index.columns.map(c => `\`${c}\``).join(', ');
+    const columns = index.columns.map((c) => `\`${c}\``).join(', ');
     return `CREATE ${unique}INDEX \`${indexName}\` ON \`${table}\` (${columns})`;
   },
 

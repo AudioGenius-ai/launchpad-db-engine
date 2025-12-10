@@ -1,5 +1,5 @@
-import { writeFile, mkdir, readFile } from 'fs/promises';
-import { join, dirname } from 'path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createDriver } from '../driver/index.js';
 import { MigrationRunner } from '../migrations/runner.js';
 import { SchemaRegistry } from '../schema/registry.js';
@@ -12,21 +12,23 @@ export interface CliConfig {
   typesOutputPath?: string;
 }
 
-export async function runMigrations(config: CliConfig, options: {
-  scope?: 'core' | 'template';
-  templateKey?: string;
-  steps?: number;
-  toVersion?: number;
-  dryRun?: boolean;
-  direction: 'up' | 'down';
-}): Promise<void> {
+export async function runMigrations(
+  config: CliConfig,
+  options: {
+    scope?: 'core' | 'template';
+    templateKey?: string;
+    steps?: number;
+    toVersion?: number;
+    dryRun?: boolean;
+    direction: 'up' | 'down';
+  }
+): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const runner = new MigrationRunner(driver, { migrationsPath: config.migrationsPath });
 
   try {
-    const results = options.direction === 'up'
-      ? await runner.up(options)
-      : await runner.down(options);
+    const results =
+      options.direction === 'up' ? await runner.up(options) : await runner.down(options);
 
     for (const result of results) {
       if (result.success) {
@@ -44,10 +46,13 @@ export async function runMigrations(config: CliConfig, options: {
   }
 }
 
-export async function getMigrationStatus(config: CliConfig, options: {
-  scope?: 'core' | 'template';
-  templateKey?: string;
-}): Promise<void> {
+export async function getMigrationStatus(
+  config: CliConfig,
+  options: {
+    scope?: 'core' | 'template';
+    templateKey?: string;
+  }
+): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const runner = new MigrationRunner(driver, { migrationsPath: config.migrationsPath });
 
@@ -76,10 +81,13 @@ export async function getMigrationStatus(config: CliConfig, options: {
   }
 }
 
-export async function verifyMigrations(config: CliConfig, options: {
-  scope?: 'core' | 'template';
-  templateKey?: string;
-}): Promise<void> {
+export async function verifyMigrations(
+  config: CliConfig,
+  options: {
+    scope?: 'core' | 'template';
+    templateKey?: string;
+  }
+): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const runner = new MigrationRunner(driver, { migrationsPath: config.migrationsPath });
 
@@ -100,17 +108,24 @@ export async function verifyMigrations(config: CliConfig, options: {
   }
 }
 
-export async function createMigration(config: CliConfig, options: {
-  name: string;
-  scope: 'core' | 'template';
-  templateKey?: string;
-}): Promise<void> {
-  const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+export async function createMigration(
+  config: CliConfig,
+  options: {
+    name: string;
+    scope: 'core' | 'template';
+    templateKey?: string;
+  }
+): Promise<void> {
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:T.Z]/g, '')
+    .slice(0, 14);
   const filename = `${timestamp}__${options.name}.sql`;
 
-  const dirPath = options.scope === 'template' && options.templateKey
-    ? join(config.migrationsPath, 'templates', options.templateKey)
-    : join(config.migrationsPath, 'core');
+  const dirPath =
+    options.scope === 'template' && options.templateKey
+      ? join(config.migrationsPath, 'templates', options.templateKey)
+      : join(config.migrationsPath, 'core');
 
   await mkdir(dirPath, { recursive: true });
 
@@ -129,10 +144,13 @@ export async function createMigration(config: CliConfig, options: {
   console.log(`Created migration: ${filePath}`);
 }
 
-export async function generateTypesFromRegistry(config: CliConfig, options: {
-  appId?: string;
-  outputPath?: string;
-}): Promise<void> {
+export async function generateTypesFromRegistry(
+  config: CliConfig,
+  options: {
+    appId?: string;
+    outputPath?: string;
+  }
+): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const registry = new SchemaRegistry(driver);
 
@@ -162,12 +180,15 @@ export async function generateTypesFromRegistry(config: CliConfig, options: {
   }
 }
 
-export async function registerSchema(config: CliConfig, options: {
-  appId: string;
-  schemaName: string;
-  version: string;
-  schemaPath: string;
-}): Promise<void> {
+export async function registerSchema(
+  config: CliConfig,
+  options: {
+    appId: string;
+    schemaName: string;
+    version: string;
+    schemaPath: string;
+  }
+): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const registry = new SchemaRegistry(driver);
 

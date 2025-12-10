@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-import { parseArgs } from 'util';
+import { parseArgs } from 'node:util';
 import {
-  runMigrations,
-  getMigrationStatus,
-  verifyMigrations,
   createMigration,
   generateTypesFromRegistry,
+  getMigrationStatus,
   registerSchema,
+  runMigrations,
+  verifyMigrations,
 } from './index.js';
 
 interface ParsedArgs {
@@ -120,8 +120,8 @@ async function main(): Promise<void> {
           direction: 'up',
           scope: v.scope as 'core' | 'template',
           templateKey: v['template-key'],
-          steps: v.steps ? parseInt(v.steps, 10) : undefined,
-          toVersion: v['to-version'] ? parseInt(v['to-version'], 10) : undefined,
+          steps: v.steps ? Number.parseInt(v.steps, 10) : undefined,
+          toVersion: v['to-version'] ? Number.parseInt(v['to-version'], 10) : undefined,
           dryRun: v['dry-run'],
         });
         break;
@@ -131,8 +131,8 @@ async function main(): Promise<void> {
           direction: 'down',
           scope: v.scope as 'core' | 'template',
           templateKey: v['template-key'],
-          steps: v.steps ? parseInt(v.steps, 10) : 1,
-          toVersion: v['to-version'] ? parseInt(v['to-version'], 10) : undefined,
+          steps: v.steps ? Number.parseInt(v.steps, 10) : 1,
+          toVersion: v['to-version'] ? Number.parseInt(v['to-version'], 10) : undefined,
           dryRun: v['dry-run'],
         });
         break;

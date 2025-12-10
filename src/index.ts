@@ -1,7 +1,12 @@
 export * from './types/index.js';
 
 export { createDriver, detectDialect } from './driver/index.js';
-export type { Driver, DriverConfig, TransactionClient, CreateDriverOptions } from './driver/index.js';
+export type {
+  Driver,
+  DriverConfig,
+  TransactionClient,
+  CreateDriverOptions,
+} from './driver/index.js';
 
 export { SQLCompiler, createCompiler } from './compiler/index.js';
 export type { CompilerOptions } from './compiler/index.js';

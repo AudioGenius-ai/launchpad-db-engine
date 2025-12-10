@@ -1,5 +1,5 @@
-import type { Driver, DriverConfig, TransactionClient } from './types.js';
 import type { QueryResult } from '../types/index.js';
+import type { Driver, DriverConfig, TransactionClient } from './types.js';
 
 export async function createMySQLDriver(config: DriverConfig): Promise<Driver> {
   const mysql = await import('mysql2/promise');

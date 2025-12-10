@@ -1,6 +1,6 @@
-import { createHash } from 'crypto';
-import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { createHash } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Driver } from '../driver/types.js';
 import type {
   MigrationFile,
@@ -8,8 +8,8 @@ import type {
   MigrationResult,
   MigrationStatus,
 } from '../types/index.js';
-import type { Dialect } from './dialects/types.js';
 import { getDialect } from './dialects/index.js';
+import type { Dialect } from './dialects/types.js';
 
 export interface MigrationRunnerOptions {
   migrationsPath: string;
@@ -38,8 +38,9 @@ export class MigrationRunner {
   }
 
   async ensureMigrationsTable(): Promise<void> {
-    const createTableSQL = this.dialect.name === 'postgresql'
-      ? `
+    const createTableSQL =
+      this.dialect.name === 'postgresql'
+        ? `
         CREATE TABLE IF NOT EXISTS "${this.tableName}" (
           version BIGINT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -52,8 +53,8 @@ export class MigrationRunner {
           executed_by TEXT
         )
       `
-      : this.dialect.name === 'mysql'
-        ? `
+        : this.dialect.name === 'mysql'
+          ? `
           CREATE TABLE IF NOT EXISTS \`${this.tableName}\` (
             version BIGINT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
@@ -66,7 +67,7 @@ export class MigrationRunner {
             executed_by VARCHAR(255)
           )
         `
-        : `
+          : `
           CREATE TABLE IF NOT EXISTS "${this.tableName}" (
             version INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -101,7 +102,7 @@ export class MigrationRunner {
       migrationsToRun = pending.slice(0, options.steps);
     }
     if (options.toVersion) {
-      migrationsToRun = pending.filter(m => m.version <= options.toVersion!);
+      migrationsToRun = pending.filter((m) => m.version <= options.toVersion!);
     }
 
     for (const migration of migrationsToRun) {
@@ -166,7 +167,7 @@ export class MigrationRunner {
       migrationsToRollback = migrationsToRollback.slice(0, options.steps);
     }
     if (options.toVersion) {
-      migrationsToRollback = migrationsToRollback.filter(m => m.version > options.toVersion!);
+      migrationsToRollback = migrationsToRollback.filter((m) => m.version > options.toVersion!);
     }
 
     for (const migration of migrationsToRollback) {
@@ -249,7 +250,7 @@ export class MigrationRunner {
     const issues: string[] = [];
 
     for (const record of applied) {
-      const file = files.find(f => f.version === record.version);
+      const file = files.find((f) => f.version === record.version);
       if (!file) {
         issues.push(`Migration ${record.version}__${record.name} was applied but file is missing`);
         continue;
@@ -258,8 +259,7 @@ export class MigrationRunner {
       const fileChecksum = this.computeChecksum(file.up);
       if (fileChecksum !== record.checksum) {
         issues.push(
-          `Migration ${record.version}__${record.name} checksum mismatch. ` +
-          `File has been modified after being applied.`
+          `Migration ${record.version}__${record.name} checksum mismatch. File has been modified after being applied.`
         );
       }
     }
@@ -269,13 +269,14 @@ export class MigrationRunner {
 
   private async loadMigrationFiles(options: MigrationRunOptions = {}): Promise<MigrationFile[]> {
     const scope = options.scope ?? 'core';
-    const dirPath = scope === 'template' && options.templateKey
-      ? join(this.migrationsPath, 'templates', options.templateKey)
-      : join(this.migrationsPath, 'core');
+    const dirPath =
+      scope === 'template' && options.templateKey
+        ? join(this.migrationsPath, 'templates', options.templateKey)
+        : join(this.migrationsPath, 'core');
 
     try {
       const files = await readdir(dirPath);
-      const sqlFiles = files.filter(f => f.endsWith('.sql')).sort();
+      const sqlFiles = files.filter((f) => f.endsWith('.sql')).sort();
 
       const migrations: MigrationFile[] = [];
 
@@ -306,16 +307,22 @@ export class MigrationRunner {
     if (!match) return null;
 
     const [, versionStr, name] = match;
-    const version = parseInt(versionStr, 10);
+    const version = Number.parseInt(versionStr, 10);
 
     const upMatch = content.match(/--\s*up\s*\n([\s\S]*?)(?=--\s*down|$)/i);
     const downMatch = content.match(/--\s*down\s*\n([\s\S]*?)$/i);
 
     const up = upMatch
-      ? upMatch[1].split(';').map(s => s.trim()).filter(Boolean)
+      ? upMatch[1]
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [];
     const down = downMatch
-      ? downMatch[1].split(';').map(s => s.trim()).filter(Boolean)
+      ? downMatch[1]
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [];
 
     if (!up.length) return null;
@@ -330,7 +337,9 @@ export class MigrationRunner {
     };
   }
 
-  private async getAppliedMigrations(options: MigrationRunOptions = {}): Promise<MigrationRecord[]> {
+  private async getAppliedMigrations(
+    options: MigrationRunOptions = {}
+  ): Promise<MigrationRecord[]> {
     const scope = options.scope ?? 'core';
     const templateKey = options.templateKey ?? null;
 
@@ -367,7 +376,7 @@ export class MigrationRunner {
       executed_by: string | null;
     }>(sql, params);
 
-    return result.rows.map(row => ({
+    return result.rows.map((row) => ({
       version: Number(row.version),
       name: row.name,
       scope: row.scope,
@@ -375,7 +384,9 @@ export class MigrationRunner {
       checksum: row.checksum,
       upSql: typeof row.up_sql === 'string' ? JSON.parse(row.up_sql) : row.up_sql,
       downSql: row.down_sql
-        ? (typeof row.down_sql === 'string' ? JSON.parse(row.down_sql) : row.down_sql)
+        ? typeof row.down_sql === 'string'
+          ? JSON.parse(row.down_sql)
+          : row.down_sql
         : [],
       appliedAt: new Date(row.applied_at),
       executedBy: row.executed_by,
@@ -385,13 +396,15 @@ export class MigrationRunner {
   private async getPendingMigrations(options: MigrationRunOptions = {}): Promise<MigrationFile[]> {
     const files = await this.loadMigrationFiles(options);
     const applied = await this.getAppliedMigrations(options);
-    const appliedVersions = new Set(applied.map(m => m.version));
+    const appliedVersions = new Set(applied.map((m) => m.version));
 
-    return files.filter(f => !appliedVersions.has(f.version));
+    return files.filter((f) => !appliedVersions.has(f.version));
   }
 
   private async recordMigration(
-    client: Driver | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
+    client:
+      | Driver
+      | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
     migration: MigrationFile
   ): Promise<void> {
     const checksum = this.computeChecksum(migration.up);
@@ -448,7 +461,9 @@ export class MigrationRunner {
   }
 
   private async removeMigrationRecord(
-    client: Driver | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
+    client:
+      | Driver
+      | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
     version: number
   ): Promise<void> {
     if (this.dialect.name === 'postgresql') {
@@ -466,6 +481,9 @@ export class MigrationRunner {
   }
 }
 
-export function createMigrationRunner(driver: Driver, options: MigrationRunnerOptions): MigrationRunner {
+export function createMigrationRunner(
+  driver: Driver,
+  options: MigrationRunnerOptions
+): MigrationRunner {
   return new MigrationRunner(driver, options);
 }

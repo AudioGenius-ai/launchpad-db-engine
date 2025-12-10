@@ -1,4 +1,9 @@
-import type { ColumnType, ColumnDefinition, TableDefinition, IndexDefinition } from '../../types/index.js';
+import type {
+  ColumnDefinition,
+  ColumnType,
+  IndexDefinition,
+  TableDefinition,
+} from '../../types/index.js';
 
 export interface Dialect {
   name: 'postgresql' | 'mysql' | 'sqlite';

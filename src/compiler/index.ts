@@ -1,8 +1,8 @@
 import type {
-  QueryAST,
-  TenantContext,
   CompiledQuery,
   DialectName,
+  QueryAST,
+  TenantContext,
   WhereClause,
 } from '../types/index.js';
 
@@ -76,9 +76,13 @@ export class SQLCompiler {
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.appId);
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.organizationId);
     }
 
@@ -131,11 +135,11 @@ export class SQLCompiler {
       params.push(data![col]);
     }
 
-    let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map(c => this.quoteIdentifier(c)).join(', ')}) VALUES (${values.join(', ')})`;
+    let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map((c) => this.quoteIdentifier(c)).join(', ')}) VALUES (${values.join(', ')})`;
 
     if (ast.returning?.length) {
       if (this.dialect === 'postgresql') {
-        sql += ` RETURNING ${ast.returning.map(c => this.quoteIdentifier(c)).join(', ')}`;
+        sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
       }
     }
 
@@ -157,9 +161,13 @@ export class SQLCompiler {
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.appId);
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.organizationId);
     }
 
@@ -179,7 +187,7 @@ export class SQLCompiler {
     }
 
     if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map(c => this.quoteIdentifier(c)).join(', ')}`;
+      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
     }
 
     return { sql, params };
@@ -194,9 +202,13 @@ export class SQLCompiler {
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.appId);
-      predicates.push(`${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`);
+      predicates.push(
+        `${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`
+      );
       params.push(ctx.organizationId);
     }
 
@@ -216,7 +228,7 @@ export class SQLCompiler {
     }
 
     if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map(c => this.quoteIdentifier(c)).join(', ')}`;
+      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
     }
 
     return { sql, params };
@@ -233,7 +245,9 @@ export class SQLCompiler {
       case 'IN':
       case 'NOT IN': {
         const values = w.value as unknown[];
-        const placeholders = values.map((_, i) => this.getParamPlaceholder(paramIndex + i)).join(', ');
+        const placeholders = values
+          .map((_, i) => this.getParamPlaceholder(paramIndex + i))
+          .join(', ');
         return { predicate: `${col} ${w.op} (${placeholders})`, value: values };
       }
       default:
@@ -247,7 +261,10 @@ export class SQLCompiler {
   private quoteIdentifier(identifier: string): string {
     if (identifier === '*') return identifier;
     if (identifier.includes('.')) {
-      return identifier.split('.').map(part => this.quoteIdentifier(part)).join('.');
+      return identifier
+        .split('.')
+        .map((part) => this.quoteIdentifier(part))
+        .join('.');
     }
 
     switch (this.dialect) {

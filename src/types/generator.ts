@@ -1,4 +1,4 @@
-import type { SchemaDefinition, ColumnType } from './index.js';
+import type { ColumnType, SchemaDefinition } from './index.js';
 
 export interface TypeGeneratorOptions {
   includeInsertTypes?: boolean;
@@ -9,7 +9,7 @@ export interface TypeGeneratorOptions {
 function pascalCase(str: string): string {
   return str
     .split(/[-_]/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join('');
 }
 
@@ -64,7 +64,7 @@ export function generateTypes(
         lines.push(`    ${colName}: ${tsType}${nullable};`);
       }
 
-      lines.push(`  }`);
+      lines.push('  }');
       lines.push('');
 
       if (includeInsertTypes) {
@@ -83,7 +83,7 @@ export function generateTypes(
           lines.push(`    ${colName}${optional}: ${tsType};`);
         }
 
-        lines.push(`  }`);
+        lines.push('  }');
         lines.push('');
       }
 
@@ -101,23 +101,25 @@ export function generateTypes(
           lines.push(`    ${colName}?: ${tsType} | null;`);
         }
 
-        lines.push(`  }`);
+        lines.push('  }');
         lines.push('');
       }
     }
 
-    const tableNames = Object.keys(schema.tables).map(t => `'${t}'`).join(' | ');
+    const tableNames = Object.keys(schema.tables)
+      .map((t) => `'${t}'`)
+      .join(' | ');
     lines.push(`  export type TableName = ${tableNames};`);
     lines.push('');
 
-    lines.push(`  export interface Tables {`);
+    lines.push('  export interface Tables {');
     for (const tableName of Object.keys(schema.tables)) {
       const typeName = pascalCase(tableName);
       lines.push(`    ${tableName}: ${typeName};`);
     }
-    lines.push(`  }`);
+    lines.push('  }');
 
-    lines.push(`}`);
+    lines.push('}');
     lines.push('');
   }
 
@@ -154,7 +156,9 @@ export function generateSchemaFromDefinition(schema: SchemaDefinition): string {
       if (col.tenant) colDef.push('tenant: true');
 
       if (col.references) {
-        colDef.push(`references: { table: '${col.references.table}', column: '${col.references.column}'${col.references.onDelete ? `, onDelete: '${col.references.onDelete}'` : ''} }`);
+        colDef.push(
+          `references: { table: '${col.references.table}', column: '${col.references.column}'${col.references.onDelete ? `, onDelete: '${col.references.onDelete}'` : ''} }`
+        );
       }
 
       lines.push(`        ${colName}: { ${colDef.join(', ')} },`);
@@ -166,7 +170,7 @@ export function generateSchemaFromDefinition(schema: SchemaDefinition): string {
       lines.push('      indexes: [');
       for (const index of table.indexes) {
         const indexDef: string[] = [];
-        indexDef.push(`columns: [${index.columns.map(c => `'${c}'`).join(', ')}]`);
+        indexDef.push(`columns: [${index.columns.map((c) => `'${c}'`).join(', ')}]`);
         if (index.name) indexDef.push(`name: '${index.name}'`);
         if (index.unique) indexDef.push('unique: true');
         if (index.where) indexDef.push(`where: '${index.where}'`);

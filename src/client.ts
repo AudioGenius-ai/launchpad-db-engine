@@ -1,9 +1,9 @@
-import type { Driver, TransactionClient } from './driver/types.js';
-import type { TenantContext, QueryResult } from './types/index.js';
 import { SQLCompiler } from './compiler/index.js';
+import type { Driver, TransactionClient } from './driver/types.js';
+import { type MigrationRunOptions, MigrationRunner } from './migrations/runner.js';
 import { TableBuilder } from './query-builder/index.js';
-import { MigrationRunner, type MigrationRunOptions } from './migrations/runner.js';
-import { SchemaRegistry, type RegisterSchemaOptions } from './schema/registry.js';
+import { type RegisterSchemaOptions, SchemaRegistry } from './schema/registry.js';
+import type { QueryResult, TenantContext } from './types/index.js';
 
 export interface DbClientOptions {
   migrationsPath?: string;
@@ -54,14 +54,10 @@ export class DbClient {
   ): Promise<T> {
     return this.driver.transaction(async (trxClient) => {
       if (this.driver.dialect === 'postgresql') {
-        await trxClient.execute(
-          `SELECT set_config('app.current_app_id', $1, true)`,
-          [ctx.appId]
-        );
-        await trxClient.execute(
-          `SELECT set_config('app.current_org_id', $1, true)`,
-          [ctx.organizationId]
-        );
+        await trxClient.execute(`SELECT set_config('app.current_app_id', $1, true)`, [ctx.appId]);
+        await trxClient.execute(`SELECT set_config('app.current_org_id', $1, true)`, [
+          ctx.organizationId,
+        ]);
       }
 
       const trxContext = new TransactionContext(trxClient, this.compiler, ctx);
@@ -69,10 +65,7 @@ export class DbClient {
     });
   }
 
-  async raw<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ): Promise<QueryResult<T>> {
+  async raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
     return this.driver.query<T>(sql, params);
   }
 
@@ -104,7 +97,8 @@ export class DbClient {
   get schema() {
     return {
       register: (options: RegisterSchemaOptions) => this.schemaRegistry.register(options),
-      get: (appId: string, schemaName: string) => this.schemaRegistry.getCurrentSchema(appId, schemaName),
+      get: (appId: string, schemaName: string) =>
+        this.schemaRegistry.getCurrentSchema(appId, schemaName),
       list: (appId?: string) => this.schemaRegistry.listSchemas(appId),
     };
   }
@@ -133,10 +127,7 @@ export class TransactionContext {
     return new TableBuilder<T>(this.client, this.compiler, name, this.ctx);
   }
 
-  async raw<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[]
-  ): Promise<QueryResult<T>> {
+  async raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
     return this.client.query<T>(sql, params);
   }
 

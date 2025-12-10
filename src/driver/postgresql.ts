@@ -1,6 +1,6 @@
-import postgres from 'postgres';
-import type { Driver, DriverConfig, TransactionClient } from './types.js';
+import postgres, { type ParameterOrJSON } from 'postgres';
 import type { QueryResult } from '../types/index.js';
+import type { Driver, DriverConfig, TransactionClient } from './types.js';
 
 export function createPostgresDriver(config: DriverConfig): Driver {
   const sql = postgres(config.connectionString, {
@@ -18,7 +18,7 @@ export function createPostgresDriver(config: DriverConfig): Driver {
       queryText: string,
       params: unknown[] = []
     ): Promise<QueryResult<T>> {
-      const result = await sql.unsafe<T[]>(queryText, params);
+      const result = await sql.unsafe<T[]>(queryText, params as ParameterOrJSON<never>[]);
       return {
         rows: result as T[],
         rowCount: result.length,
@@ -26,32 +26,33 @@ export function createPostgresDriver(config: DriverConfig): Driver {
     },
 
     async execute(queryText: string, params: unknown[] = []): Promise<{ rowCount: number }> {
-      const result = await sql.unsafe(queryText, params);
+      const result = await sql.unsafe(queryText, params as ParameterOrJSON<never>[]);
       return { rowCount: result.count ?? 0 };
     },
 
     async transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T> {
-      return sql.begin(async (tx) => {
+      const result = await sql.begin(async (tx) => {
         const client: TransactionClient = {
           async query<R = Record<string, unknown>>(
             queryText: string,
             params: unknown[] = []
           ): Promise<QueryResult<R>> {
-            const result = await tx.unsafe<R[]>(queryText, params);
+            const txResult = await tx.unsafe<R[]>(queryText, params as ParameterOrJSON<never>[]);
             return {
-              rows: result as R[],
-              rowCount: result.length,
+              rows: txResult as R[],
+              rowCount: txResult.length,
             };
           },
 
           async execute(queryText: string, params: unknown[] = []): Promise<{ rowCount: number }> {
-            const result = await tx.unsafe(queryText, params);
-            return { rowCount: result.count ?? 0 };
+            const txResult = await tx.unsafe(queryText, params as ParameterOrJSON<never>[]);
+            return { rowCount: txResult.count ?? 0 };
           },
         };
 
         return fn(client);
       });
+      return result as T;
     },
 
     async close(): Promise<void> {

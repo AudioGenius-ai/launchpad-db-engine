@@ -1,6 +1,6 @@
 import type { DialectName } from '../types/index.js';
-import type { Driver, DriverConfig } from './types.js';
 import { createPostgresDriver } from './postgresql.js';
+import type { Driver, DriverConfig } from './types.js';
 
 export type { Driver, DriverConfig, TransactionClient } from './types.js';
 

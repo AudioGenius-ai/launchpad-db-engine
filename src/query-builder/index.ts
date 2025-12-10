@@ -1,10 +1,6 @@
+import type { SQLCompiler } from '../compiler/index.js';
 import type { Driver, TransactionClient } from '../driver/types.js';
-import type {
-  TenantContext,
-  QueryAST,
-  Operator,
-} from '../types/index.js';
-import { SQLCompiler } from '../compiler/index.js';
+import type { Operator, QueryAST, TenantContext } from '../types/index.js';
 
 export class SelectBuilder<T = Record<string, unknown>> {
   private ast: QueryAST;
@@ -312,7 +308,9 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   async findById(id: string | number): Promise<T | null> {
-    return this.select().where('id' as keyof T, '=', id).first();
+    return this.select()
+      .where('id' as keyof T, '=', id)
+      .first();
   }
 
   async findMany(options?: {

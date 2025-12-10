@@ -1,7 +1,7 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import type { Driver } from '../driver/types.js';
-import type { SchemaDefinition, TableDefinition, MigrationResult } from '../types/index.js';
-import { getDialect, type Dialect } from '../migrations/dialects/index.js';
+import { type Dialect, getDialect } from '../migrations/dialects/index.js';
+import type { MigrationResult, SchemaDefinition, TableDefinition } from '../types/index.js';
 
 export interface SchemaRegistryOptions {
   tableName?: string;
@@ -36,8 +36,9 @@ export class SchemaRegistry {
   }
 
   async ensureRegistryTable(): Promise<void> {
-    const createTableSQL = this.dialect.name === 'postgresql'
-      ? `
+    const createTableSQL =
+      this.dialect.name === 'postgresql'
+        ? `
         CREATE TABLE IF NOT EXISTS "${this.tableName}" (
           app_id TEXT NOT NULL,
           schema_name TEXT NOT NULL,
@@ -49,8 +50,8 @@ export class SchemaRegistry {
           PRIMARY KEY (app_id, schema_name)
         )
       `
-      : this.dialect.name === 'mysql'
-        ? `
+        : this.dialect.name === 'mysql'
+          ? `
           CREATE TABLE IF NOT EXISTS \`${this.tableName}\` (
             app_id VARCHAR(255) NOT NULL,
             schema_name VARCHAR(255) NOT NULL,
@@ -62,7 +63,7 @@ export class SchemaRegistry {
             PRIMARY KEY (app_id, schema_name)
           )
         `
-        : `
+          : `
           CREATE TABLE IF NOT EXISTS "${this.tableName}" (
             app_id TEXT NOT NULL,
             schema_name TEXT NOT NULL,
@@ -231,7 +232,7 @@ export class SchemaRegistry {
       updated_at: Date | string;
     }>(sql, params);
 
-    return result.rows.map(row => ({
+    return result.rows.map((row) => ({
       app_id: row.app_id,
       schema_name: row.schema_name,
       version: row.version,
@@ -248,7 +249,9 @@ export class SchemaRegistry {
         throw new Error(`Table "${tableName}" must have an "app_id" column for multi-tenancy`);
       }
       if (!table.columns.organization_id) {
-        throw new Error(`Table "${tableName}" must have an "organization_id" column for multi-tenancy`);
+        throw new Error(
+          `Table "${tableName}" must have an "organization_id" column for multi-tenancy`
+        );
       }
       if (!table.columns.id) {
         throw new Error(`Table "${tableName}" must have an "id" column`);
@@ -261,7 +264,9 @@ export class SchemaRegistry {
         throw new Error(`Column "app_id" in table "${tableName}" must be marked as tenant column`);
       }
       if (!orgIdCol.tenant) {
-        throw new Error(`Column "organization_id" in table "${tableName}" must be marked as tenant column`);
+        throw new Error(
+          `Column "organization_id" in table "${tableName}" must be marked as tenant column`
+        );
       }
     }
   }
@@ -328,7 +333,10 @@ export class SchemaRegistry {
     return changes;
   }
 
-  private columnsEqual(a: TableDefinition['columns'][string], b: TableDefinition['columns'][string]): boolean {
+  private columnsEqual(
+    a: TableDefinition['columns'][string],
+    b: TableDefinition['columns'][string]
+  ): boolean {
     return (
       a.type === b.type &&
       a.nullable === b.nullable &&
@@ -339,7 +347,9 @@ export class SchemaRegistry {
   }
 
   private async upsertSchemaRecord(
-    client: Driver | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
+    client:
+      | Driver
+      | { execute: (sql: string, params?: unknown[]) => Promise<{ rowCount: number }> },
     data: {
       appId: string;
       schemaName: string;
@@ -391,6 +401,9 @@ export class SchemaRegistry {
   }
 }
 
-export function createSchemaRegistry(driver: Driver, options?: SchemaRegistryOptions): SchemaRegistry {
+export function createSchemaRegistry(
+  driver: Driver,
+  options?: SchemaRegistryOptions
+): SchemaRegistry {
   return new SchemaRegistry(driver, options);
 }

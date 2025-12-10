@@ -1,4 +1,9 @@
-import type { ColumnType, ColumnDefinition, TableDefinition, IndexDefinition } from '../../types/index.js';
+import type {
+  ColumnDefinition,
+  ColumnType,
+  IndexDefinition,
+  TableDefinition,
+} from '../../types/index.js';
 import type { Dialect } from './types.js';
 
 export const sqliteDialect: Dialect = {
@@ -35,11 +40,12 @@ export const sqliteDialect: Dialect = {
       }
 
       if (colDef.default) {
-        const defaultVal = colDef.default === 'gen_random_uuid()'
-          ? "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))"
-          : colDef.default === 'now()' || colDef.default === 'NOW()'
-            ? "datetime('now')"
-            : colDef.default;
+        const defaultVal =
+          colDef.default === 'gen_random_uuid()'
+            ? "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))"
+            : colDef.default === 'now()' || colDef.default === 'NOW()'
+              ? "datetime('now')"
+              : colDef.default;
         sql += ` DEFAULT ${defaultVal}`;
       }
 
@@ -62,7 +68,7 @@ export const sqliteDialect: Dialect = {
     }
 
     if (def.primaryKey && def.primaryKey.length > 1) {
-      columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map(c => `"${c}"`).join(', ')})`);
+      columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map((c) => `"${c}"`).join(', ')})`);
     }
 
     return `CREATE TABLE "${name}" (\n${columnDefs.join(',\n')}\n)`;
@@ -89,14 +95,14 @@ export const sqliteDialect: Dialect = {
   alterColumn(_table: string, _column: string, _def: ColumnDefinition): string {
     throw new Error(
       'SQLite does not support ALTER COLUMN. Use table recreation instead: ' +
-      '1. Create new table with desired schema, 2. Copy data, 3. Drop old table, 4. Rename new table'
+        '1. Create new table with desired schema, 2. Copy data, 3. Drop old table, 4. Rename new table'
     );
   },
 
   createIndex(table: string, index: IndexDefinition): string {
     const indexName = index.name || `idx_${table}_${index.columns.join('_')}`;
     const unique = index.unique ? 'UNIQUE ' : '';
-    const columns = index.columns.map(c => `"${c}"`).join(', ');
+    const columns = index.columns.map((c) => `"${c}"`).join(', ');
     let sql = `CREATE ${unique}INDEX "${indexName}" ON "${table}" (${columns})`;
 
     if (index.where) {
@@ -119,14 +125,12 @@ export const sqliteDialect: Dialect = {
   ): string {
     throw new Error(
       'SQLite does not support adding foreign keys after table creation. ' +
-      'Define foreign keys in CREATE TABLE or use table recreation.'
+        'Define foreign keys in CREATE TABLE or use table recreation.'
     );
   },
 
   dropForeignKey(_table: string, _constraintName: string): string {
-    throw new Error(
-      'SQLite does not support dropping foreign keys. Use table recreation instead.'
-    );
+    throw new Error('SQLite does not support dropping foreign keys. Use table recreation instead.');
   },
 
   introspectTablesQuery(): string {
