@@ -1,0 +1,85 @@
+{
+  "name": "@launchpad/db-engine",
+  "version": "0.1.0",
+  "description": "Custom database engine with built-in multi-tenancy, migrations, and type generation",
+  "author": "AudioGenius <hello@audiogenius.ai>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AudioGenius-ai/launchpad-db-engine.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AudioGenius-ai/launchpad-db-engine/issues"
+  },
+  "homepage": "https://github.com/AudioGenius-ai/launchpad-db-engine#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/cli/index.js",
+      "types": "./dist/cli/index.d.ts"
+    }
+  },
+  "bin": {
+    "launchpad-db": "./dist/cli/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5"
+  },
+  "optionalDependencies": {
+    "mysql2": "^3.11.0",
+    "better-sqlite3": "^11.5.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "database",
+    "query-builder",
+    "migrations",
+    "multi-tenant",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "orm",
+    "typescript",
+    "baas"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
