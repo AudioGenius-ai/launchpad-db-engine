@@ -136,9 +136,7 @@ export class SQLCompiler {
     let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map((c) => this.quoteIdentifier(c)).join(', ')}) VALUES (${values.join(', ')})`;
 
     if (ast.returning?.length) {
-      if (this.dialect === 'postgresql') {
-        sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
-      }
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
@@ -182,8 +180,8 @@ export class SQLCompiler {
       sql += ` WHERE ${predicates.join(' AND ')}`;
     }
 
-    if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+    if (ast.returning?.length) {
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
@@ -221,11 +219,25 @@ export class SQLCompiler {
       sql += ` WHERE ${predicates.join(' AND ')}`;
     }
 
-    if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+    if (ast.returning?.length) {
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
+  }
+
+  private compileReturning(columns: string[]): string {
+    switch (this.dialect) {
+      case 'postgresql':
+      case 'sqlite':
+        return ` RETURNING ${columns.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+      case 'mysql':
+        throw new Error(
+          'MySQL does not support RETURNING clause. Use separate SELECT query after INSERT/UPDATE/DELETE.'
+        );
+      default:
+        throw new Error(`Unsupported dialect for RETURNING: ${this.dialect}`);
+    }
   }
 
   private compileWhere(w: WhereClause, paramIndex: number): { predicate: string; values: unknown[]; paramCount: number } {

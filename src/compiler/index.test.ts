@@ -398,7 +398,7 @@ describe('SQLCompiler', () => {
       expect(sql).toContain('`app_id`');
     });
 
-    it('should not add RETURNING clause', () => {
+    it('should throw error when RETURNING clause is requested', () => {
       const ast: QueryAST = {
         type: 'insert',
         table: 'users',
@@ -406,9 +406,9 @@ describe('SQLCompiler', () => {
         returning: ['id'],
       };
 
-      const { sql } = compiler.compile(ast, mockCtx);
-
-      expect(sql).not.toContain('RETURNING');
+      expect(() => compiler.compile(ast, mockCtx)).toThrow(
+        'MySQL does not support RETURNING clause'
+      );
     });
   });
 
@@ -441,6 +441,19 @@ describe('SQLCompiler', () => {
 
       expect(sql).toContain('"users"');
       expect(sql).toContain('"app_id"');
+    });
+
+    it('should support RETURNING clause', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: { name: 'John' },
+        returning: ['id', 'name'],
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('RETURNING "id", "name"');
     });
   });
 
