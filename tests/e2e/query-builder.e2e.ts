@@ -548,31 +548,24 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
   });
 
   describe('JOIN Operations', () => {
-    beforeEach(async () => {
-      // Insert users
-      const userId1 = 'user-1';
-      const userId2 = 'user-2';
+    let userId1: string;
+    let userId2: string;
 
-      await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $7, $8)`,
-        [
-          userId1,
-          'John',
-          'john@example.com',
-          30,
-          true,
-          95.0,
-          tenant.appId,
-          tenant.organizationId,
-          userId2,
-          'Jane',
-          'jane@example.com',
-          28,
-          true,
-          88.0,
-        ]
+    beforeEach(async () => {
+      // Insert users and get their generated UUIDs
+      const user1Result = await driver.query<{ id: string }>(
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        ['John', 'john@join.com', 30, true, 95.0, tenant.appId, tenant.organizationId]
       );
+      userId1 = user1Result.rows[0].id;
+
+      const user2Result = await driver.query<{ id: string }>(
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        ['Jane', 'jane@join.com', 28, true, 88.0, tenant.appId, tenant.organizationId]
+      );
+      userId2 = user2Result.rows[0].id;
 
       // Insert profiles
       await driver.execute(
@@ -604,11 +597,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
 
     it('should perform LEFT JOIN', async () => {
       // Insert user without profile
-      const userId3 = 'user-3';
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [userId3, 'Bob', 'bob@example.com', 35, true, 92.0, tenant.appId, tenant.organizationId]
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        ['Bob', 'bob@join.com', 35, true, 92.0, tenant.appId, tenant.organizationId]
       );
 
       const result = await db
