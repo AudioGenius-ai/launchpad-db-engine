@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDbClient } from '../../src/client.js';
-import type { Driver } from '../../src/driver/types.js';
 import type { DbClient } from '../../src/client.js';
+import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import type { Driver } from '../../src/driver/types.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
   let driver: Driver;
@@ -174,13 +174,27 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       await driver.execute(
         `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user1Id, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-data-1']
+        [
+          user1Id,
+          'User1',
+          'user1@example.com',
+          tenant1.appId,
+          tenant1.organizationId,
+          'secret-data-1',
+        ]
       );
 
       await driver.execute(
         `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user2Id, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-data-2']
+        [
+          user2Id,
+          'User2',
+          'user2@example.com',
+          tenant2.appId,
+          tenant2.organizationId,
+          'secret-data-2',
+        ]
       );
 
       // Query tenant1 - should not see tenant2 data
@@ -211,9 +225,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       );
 
       // Tenant1 queries by ID - should only get tenant1's version
-      const result = await db.table(testTableName, tenant1)
-        .where('id', '=', userId)
-        .select();
+      const result = await db.table(testTableName, tenant1).where('id', '=', userId).select();
 
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0]).toMatchObject({
@@ -240,7 +252,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       );
 
       // Tenant1 tries to update by ID (with tenant context injection)
-      const updateResult = await db.table(testTableName, tenant1)
+      const updateResult = await db
+        .table(testTableName, tenant1)
         .where('id', '=', userId)
         .update({ name: 'Updated User1' });
 
@@ -278,9 +291,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       );
 
       // Tenant1 tries to delete by ID (with tenant context injection)
-      const deleteResult = await db.table(testTableName, tenant1)
-        .where('id', '=', userId)
-        .delete();
+      const deleteResult = await db.table(testTableName, tenant1).where('id', '=', userId).delete();
 
       expect(deleteResult.rowCount).toBe(1);
 
@@ -581,17 +592,32 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       await driver.execute(
         `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId1, 'Active User', 'active@example.com', tenant1.appId, tenant1.organizationId, 'secret']
+        [
+          userId1,
+          'Active User',
+          'active@example.com',
+          tenant1.appId,
+          tenant1.organizationId,
+          'secret',
+        ]
       );
 
       await driver.execute(
         `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId2, 'Inactive User', 'inactive@example.com', tenant1.appId, tenant1.organizationId, 'secret']
+        [
+          userId2,
+          'Inactive User',
+          'inactive@example.com',
+          tenant1.appId,
+          tenant1.organizationId,
+          'secret',
+        ]
       );
 
       // Query with additional WHERE conditions
-      const result = await db.table(testTableName, tenant1)
+      const result = await db
+        .table(testTableName, tenant1)
         .where('name', 'like', '%Active%')
         .select();
 

@@ -151,7 +151,7 @@ export class Repository<T> {
       if (!this.tenantContext) {
         throw new Error(
           'TenantContext is required when using Repository with DbClient. ' +
-          'Either provide tenantContext or use Repository within a transaction.'
+            'Either provide tenantContext or use Repository within a transaction.'
         );
       }
       return this.db.table(this.tableName, this.tenantContext);

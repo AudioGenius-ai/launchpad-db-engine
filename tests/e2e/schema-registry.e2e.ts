@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPostgresDriver } from '../../src/driver/postgresql.js';
-import { SchemaRegistry } from '../../src/schema/registry.js';
 import type { Driver } from '../../src/driver/types.js';
+import { SchemaRegistry } from '../../src/schema/registry.js';
 import type { SchemaDefinition } from '../../src/types/index.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
@@ -214,7 +214,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       });
 
       expect(results.length).toBeGreaterThan(0);
-      expect(results.some(r => r.success && r.name.includes('email'))).toBe(true);
+      expect(results.some((r) => r.success && r.name.includes('email'))).toBe(true);
 
       // Verify column was added
       const columnCheck = await driver.query<{ column_name: string }>(
@@ -353,7 +353,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       });
 
       expect(results.length).toBeGreaterThan(0);
-      expect(results.some(r => r.name.includes('test_posts'))).toBe(true);
+      expect(results.some((r) => r.name.includes('test_posts'))).toBe(true);
     });
   });
 
@@ -442,7 +442,9 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       const schemas = await registry.listSchemas(testAppId);
 
       expect(schemas.length).toBe(2);
-      expect(schemas.map(s => s.schema_name)).toEqual(expect.arrayContaining(['schema1', 'schema2']));
+      expect(schemas.map((s) => s.schema_name)).toEqual(
+        expect.arrayContaining(['schema1', 'schema2'])
+      );
     });
   });
 
@@ -538,8 +540,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       const app1Schemas = await registry.listSchemas(testAppId);
       const app2Schemas = await registry.listSchemas(testAppId2);
 
-      expect(app1Schemas.every(s => s.app_id === testAppId)).toBe(true);
-      expect(app2Schemas.every(s => s.app_id === testAppId2)).toBe(true);
+      expect(app1Schemas.every((s) => s.app_id === testAppId)).toBe(true);
+      expect(app2Schemas.every((s) => s.app_id === testAppId2)).toBe(true);
     });
   });
 

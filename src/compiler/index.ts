@@ -242,7 +242,10 @@ export class SQLCompiler {
     }
   }
 
-  private compileWhere(w: WhereClause, paramIndex: number): { predicate: string; values: unknown[]; paramCount: number } {
+  private compileWhere(
+    w: WhereClause,
+    paramIndex: number
+  ): { predicate: string; values: unknown[]; paramCount: number } {
     const col = this.quoteIdentifier(w.column);
 
     switch (w.op) {
