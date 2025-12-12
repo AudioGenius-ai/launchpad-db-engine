@@ -350,7 +350,9 @@ export class TableBuilder<T = Record<string, unknown>> {
     return new InsertBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
   }
 
-  update(data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>): UpdateBuilder<T> {
+  update(
+    data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>
+  ): UpdateBuilder<T> {
     const builder = new UpdateBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
     if (data) {
       builder.set(data);
