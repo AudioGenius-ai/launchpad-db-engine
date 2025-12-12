@@ -22,6 +22,11 @@ class User extends TenantEntity {
 
 const mockDbClient = {
   table: vi.fn(),
+  tableWithoutTenant: vi.fn(),
+};
+
+const mockTransactionContext = {
+  table: vi.fn(),
 };
 
 const mockTableBuilder = {
@@ -299,6 +304,27 @@ describe('Repository', () => {
       const exists = await repo.exists({ email: 'nonexistent@example.com' });
 
       expect(exists).toBe(false);
+    });
+  });
+
+  describe('tenant context validation', () => {
+    it('should throw error when using DbClient without tenantContext', async () => {
+      const repo = new Repository(User, mockDbClient as never);
+
+      await expect(repo.find()).rejects.toThrow(
+        'TenantContext is required when using Repository with DbClient'
+      );
+    });
+
+    it('should work with TransactionContext without explicit tenantContext', async () => {
+      mockTransactionContext.table.mockReturnValue(mockTableBuilder);
+      mockTableBuilder.execute.mockResolvedValueOnce([]);
+
+      const repo = new Repository(User, mockTransactionContext as never);
+      const users = await repo.find();
+
+      expect(mockTransactionContext.table).toHaveBeenCalledWith('users');
+      expect(users).toHaveLength(0);
     });
   });
 });
