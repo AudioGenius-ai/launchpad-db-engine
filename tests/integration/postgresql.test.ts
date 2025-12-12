@@ -133,7 +133,7 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
           ['alice@example.com', 'bob@example.com']
         );
 
-        return count.rows[0].count;
+        return Number(count.rows[0].count);
       });
 
       expect(result).toBe(2);
@@ -269,7 +269,8 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
       const appIdCheck = await driver.query<{ current_setting: string | null }>(
         "SELECT current_setting('app.current_app_id', true) as current_setting"
       );
-      expect(appIdCheck.rows[0].current_setting).toBeNull();
+      // After transaction ends, SET LOCAL resets - check for null or empty string
+      expect(appIdCheck.rows[0].current_setting || null).toBeNull();
     });
 
     it('should rollback tenant context on transaction error', async () => {

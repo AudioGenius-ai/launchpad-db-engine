@@ -378,12 +378,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .returning('name', 'age', 'active', 'score')
         .execute();
 
-      expect(result[0]).toMatchObject({
-        name: 'DataTest',
-        age: 42,
-        active: false,
-        score: 75.25,
-      });
+      expect(result[0].name).toBe('DataTest');
+      expect(result[0].age).toBe(42);
+      expect(result[0].active).toBe(false);
+      expect(Number(result[0].score)).toBe(75.25);
     });
 
     it('should handle batch inserts via multiple calls', async () => {
@@ -441,7 +439,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .select()
         .first();
 
-      expect(result).toMatchObject({ age: 31, score: 96.0 });
+      expect(result?.age).toBe(31);
+      expect(Number(result?.score)).toBe(96.0);
     });
 
     it('should update with RETURNING clause', async () => {
@@ -466,7 +465,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
       const result = await db.table(testTableName, tenant).select().execute();
       const inactiveCount = result.filter((r) => !r.active).length;
 
-      expect(inactiveCount).toBe(1); // Only John matches age > 25
+      expect(inactiveCount).toBe(2); // Both John (30) and Jane (28) have age > 25
     });
 
     it('should not update without conditions (safe mode)', async () => {
@@ -485,7 +484,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .first();
 
       // Jane's score should be unchanged
-      expect(result?.score).toBe(88.0);
+      expect(Number(result?.score)).toBe(88.0);
     });
   });
 
@@ -739,7 +738,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .execute();
 
       expect(result).toHaveLength(2);
-      expect(result[0].score).toBeGreaterThanOrEqual(result[1].score);
+      expect(Number(result[0].score)).toBeGreaterThanOrEqual(Number(result[1].score));
     });
 
     it('should paginate results with limit and offset', async () => {
