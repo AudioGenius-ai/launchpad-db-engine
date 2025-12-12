@@ -1,5 +1,7 @@
 export * from './types/index.js';
 
+export * from './orm/index.js';
+
 export { createDriver, detectDialect } from './driver/index.js';
 export type {
   Driver,
