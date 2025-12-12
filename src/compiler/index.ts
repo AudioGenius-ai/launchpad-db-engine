@@ -88,12 +88,10 @@ export class SQLCompiler {
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -173,12 +171,10 @@ export class SQLCompiler {
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -214,12 +210,10 @@ export class SQLCompiler {
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -234,26 +228,38 @@ export class SQLCompiler {
     return { sql, params };
   }
 
-  private compileWhere(w: WhereClause, paramIndex: number): { predicate: string; value?: unknown } {
+  private compileWhere(w: WhereClause, paramIndex: number): { predicate: string; values: unknown[]; paramCount: number } {
     const col = this.quoteIdentifier(w.column);
 
     switch (w.op) {
       case 'IS NULL':
-        return { predicate: `${col} IS NULL` };
+        return { predicate: `${col} IS NULL`, values: [], paramCount: 0 };
       case 'IS NOT NULL':
-        return { predicate: `${col} IS NOT NULL` };
+        return { predicate: `${col} IS NOT NULL`, values: [], paramCount: 0 };
       case 'IN':
       case 'NOT IN': {
-        const values = w.value as unknown[];
-        const placeholders = values
+        const inValues = w.value as unknown[];
+        if (inValues.length === 0) {
+          return {
+            predicate: w.op === 'IN' ? '1 = 0' : '1 = 1',
+            values: [],
+            paramCount: 0,
+          };
+        }
+        const placeholders = inValues
           .map((_, i) => this.getParamPlaceholder(paramIndex + i))
           .join(', ');
-        return { predicate: `${col} ${w.op} (${placeholders})`, value: values };
+        return {
+          predicate: `${col} ${w.op} (${placeholders})`,
+          values: inValues,
+          paramCount: inValues.length,
+        };
       }
       default:
         return {
           predicate: `${col} ${w.op} ${this.getParamPlaceholder(paramIndex)}`,
-          value: w.value,
+          values: w.value !== undefined ? [w.value] : [],
+          paramCount: w.value !== undefined ? 1 : 0,
         };
     }
   }

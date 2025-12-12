@@ -141,8 +141,40 @@ describe('SQLCompiler', () => {
         const { sql, params } = compiler.compile(ast, mockCtx);
 
         expect(sql).toContain('"status" IN ($3, $4)');
-        // IN clause values are pushed as an array
-        expect(params[2]).toEqual(['active', 'pending']);
+        // IN clause values should be spread as individual params
+        expect(params[2]).toEqual('active');
+        expect(params[3]).toEqual('pending');
+        expect(params.length).toBe(4); // 2 tenant params + 2 IN values
+      });
+
+      it('should compile SELECT with empty IN clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'status', op: 'IN', value: [] }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        // Empty IN should return no rows (1 = 0)
+        expect(sql).toContain('1 = 0');
+        expect(params.length).toBe(2); // Only tenant params
+      });
+
+      it('should compile SELECT with empty NOT IN clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'status', op: 'NOT IN', value: [] }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        // Empty NOT IN should return all rows (1 = 1)
+        expect(sql).toContain('1 = 1');
+        expect(params.length).toBe(2); // Only tenant params
       });
 
       it('should compile SELECT with JOIN', () => {
