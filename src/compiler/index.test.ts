@@ -23,7 +23,7 @@ describe('SQLCompiler', () => {
         const { sql, params } = compiler.compile(ast, mockCtx);
 
         expect(sql).toBe(
-          'SELECT id, name FROM "users" WHERE "app_id" = $1 AND "organization_id" = $2'
+          'SELECT "id", "name" FROM "users" WHERE "app_id" = $1 AND "organization_id" = $2'
         );
         expect(params).toEqual(['test-app', 'org-123']);
       });
@@ -194,7 +194,7 @@ describe('SQLCompiler', () => {
 
         const { sql } = compiler.compile(ast, mockCtx);
 
-        expect(sql).toContain('INNER JOIN "users" ON orders.user_id = users.id');
+        expect(sql).toContain('INNER JOIN "users" ON "orders"."user_id" = "users"."id"');
       });
 
       it('should compile SELECT with JOIN and alias', () => {
@@ -215,7 +215,7 @@ describe('SQLCompiler', () => {
 
         const { sql } = compiler.compile(ast, mockCtx);
 
-        expect(sql).toContain('LEFT JOIN "users" AS "u" ON orders.user_id = u.id');
+        expect(sql).toContain('LEFT JOIN "users" AS "u" ON "orders"."user_id" = "u"."id"');
       });
     });
 

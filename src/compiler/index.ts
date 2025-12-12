@@ -62,14 +62,16 @@ export class SQLCompiler {
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    const columns = ast.columns?.length ? ast.columns.join(', ') : '*';
+    const columns = ast.columns?.length
+      ? ast.columns.map((c) => this.quoteIdentifier(c)).join(', ')
+      : '*';
     let sql = `SELECT ${columns} FROM ${this.quoteIdentifier(ast.table)}`;
 
     if (ast.joins?.length) {
       for (const join of ast.joins) {
         const alias = join.alias ? ` AS ${this.quoteIdentifier(join.alias)}` : '';
         sql += ` ${join.type} JOIN ${this.quoteIdentifier(join.table)}${alias}`;
-        sql += ` ON ${join.on.leftColumn} = ${join.on.rightColumn}`;
+        sql += ` ON ${this.quoteIdentifier(join.on.leftColumn)} = ${this.quoteIdentifier(join.on.rightColumn)}`;
       }
     }
 
