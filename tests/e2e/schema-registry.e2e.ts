@@ -23,10 +23,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
   afterAll(async () => {
     // Clean up test tables created by registry
     try {
-      await driver.execute(`DROP TABLE IF EXISTS test_users CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_posts CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_comments CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS lp_schema_registry CASCADE;`);
+      await driver.execute('DROP TABLE IF EXISTS test_users CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_posts CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_comments CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS lp_schema_registry CASCADE;');
     } catch (e) {
       // Ignore errors during cleanup
     }
@@ -36,10 +36,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
   beforeEach(async () => {
     // Clear registry before each test
     try {
-      await driver.execute(`DELETE FROM lp_schema_registry;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_users CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_posts CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_comments CASCADE;`);
+      await driver.execute('DELETE FROM lp_schema_registry;');
+      await driver.execute('DROP TABLE IF EXISTS test_users CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_posts CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_comments CASCADE;');
     } catch (e) {
       // Ignore if tables don't exist yet
     }

@@ -59,7 +59,7 @@ describe.skipIf(!DATABASE_URL)('MigrationRunner E2E Tests', () => {
         await runner.ensureMigrationsTable();
 
         const result = await driver.query<{ table_name: string }>(
-          `SELECT table_name FROM information_schema.tables WHERE table_name = $1`,
+          'SELECT table_name FROM information_schema.tables WHERE table_name = $1',
           [testTableName]
         );
 
@@ -80,7 +80,7 @@ describe.skipIf(!DATABASE_URL)('MigrationRunner E2E Tests', () => {
         await runner.ensureMigrationsTable();
 
         const result = await driver.query<{ column_name: string }>(
-          `SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`,
+          'SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position',
           [testTableName]
         );
 
@@ -110,7 +110,7 @@ describe.skipIf(!DATABASE_URL)('MigrationRunner E2E Tests', () => {
         await runner.ensureMigrationsTable();
 
         const result = await driver.query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = $1`,
+          'SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = $1',
           [testTableName]
         );
 
@@ -147,7 +147,7 @@ DROP TABLE "${tableName}";`
         expect(results[0].name).toBe('create_test_table');
 
         const tableExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [tableName]
         );
         expect(tableExists.rows[0].exists).toBe(true);
@@ -229,7 +229,7 @@ DROP TABLE "${accountsTable}";`
         expect(results[0].version).toBe(20240101000000);
 
         const accountsExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [accountsTable]
         );
         expect(accountsExists.rows[0].exists).toBe(false);
@@ -373,7 +373,7 @@ DROP TABLE "${usersTable}";`
         await runner.up();
 
         const tableExistsBefore = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(tableExistsBefore.rows[0].exists).toBe(true);
@@ -384,7 +384,7 @@ DROP TABLE "${usersTable}";`
         expect(results[0].success).toBe(true);
 
         const tableExistsAfter = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(tableExistsAfter.rows[0].exists).toBe(false);
@@ -467,7 +467,7 @@ DROP TABLE "${accountsTable}";`
         expect(results[0].version).toBe(20240102000000);
 
         const usersExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(usersExists.rows[0].exists).toBe(true);
@@ -838,7 +838,7 @@ DROP TABLE "${usersTable}";`
         expect(results[0].success).toBe(true);
 
         const tableExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(tableExists.rows[0].exists).toBe(false);
@@ -872,7 +872,7 @@ DROP TABLE "${usersTable}";`
         expect(results[0].success).toBe(true);
 
         const tableExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(tableExists.rows[0].exists).toBe(true);
@@ -908,7 +908,7 @@ DROP TABLE "${usersTable}";`
         expect(results[0].success).toBe(false);
 
         const tableExists = await driver.query<{ exists: boolean }>(
-          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+          'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
           [usersTable]
         );
         expect(tableExists.rows[0].exists).toBe(false);
