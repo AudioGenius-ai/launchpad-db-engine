@@ -483,7 +483,6 @@ export class MigrationRunner {
     for (let i = 0; i < sql.length; i++) {
       const char = sql[i];
       const next = sql[i + 1] || '';
-      const prev = sql[i - 1] || '';
 
       if (inLineComment) {
         current += char;
