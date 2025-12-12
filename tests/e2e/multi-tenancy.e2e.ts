@@ -171,25 +171,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       await driver.execute(
         `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5)`,
-        [
-          'User1',
-          'user1@cross.com',
-          tenant1.appId,
-          tenant1.organizationId,
-          'secret-data-1',
-        ]
+        ['User1', 'user1@cross.com', tenant1.appId, tenant1.organizationId, 'secret-data-1']
       );
 
       await driver.execute(
         `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
          VALUES ($1, $2, $3, $4, $5)`,
-        [
-          'User2',
-          'user2@cross.com',
-          tenant2.appId,
-          tenant2.organizationId,
-          'secret-data-2',
-        ]
+        ['User2', 'user2@cross.com', tenant2.appId, tenant2.organizationId, 'secret-data-2']
       );
 
       // Query tenant1 - should not see tenant2 data
