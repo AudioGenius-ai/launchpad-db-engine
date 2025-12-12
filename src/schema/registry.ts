@@ -315,8 +315,12 @@ export class SchemaRegistry {
 
       for (const colName of Object.keys(currentTable.columns)) {
         if (!desiredTable.columns[colName]) {
-          const sql = this.dialect.dropColumn(tableName, colName);
-          changes.push({ sql, description: `Drop column ${tableName}.${colName}` });
+          try {
+            const sql = this.dialect.dropColumn(tableName, colName);
+            changes.push({ sql, description: `Drop column ${tableName}.${colName}` });
+          } catch (error) {
+            console.warn(`Cannot drop column ${tableName}.${colName}: ${error}`);
+          }
         }
       }
     }
