@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDbClient } from '../../src/client.js';
-import type { Driver } from '../../src/driver/types.js';
 import type { DbClient } from '../../src/client.js';
+import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import type { Driver } from '../../src/driver/types.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () => {
   let driver: Driver;
@@ -10,7 +10,7 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
 
   beforeAll(async () => {
     driver = createPostgresDriver({
-      connectionString: process.env.DATABASE_URL as string
+      connectionString: process.env.DATABASE_URL as string,
     });
 
     await driver.execute(`
@@ -81,10 +81,10 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
     });
 
     it('should handle parameterized UPDATE queries', async () => {
-      const result = await driver.execute(
-        `UPDATE ${testTableName} SET age = $1 WHERE email = $2`,
-        [26, 'jane@example.com']
-      );
+      const result = await driver.execute(`UPDATE ${testTableName} SET age = $1 WHERE email = $2`, [
+        26,
+        'jane@example.com',
+      ]);
       expect(result.rowCount).toBe(1);
 
       const updated = await driver.query<{ age: number }>(
@@ -95,21 +95,20 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
     });
 
     it('should handle parameterized DELETE queries', async () => {
-      await driver.execute(
-        `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-        ['Temp User', 'temp@example.com', 99]
-      );
+      await driver.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+        'Temp User',
+        'temp@example.com',
+        99,
+      ]);
 
-      const result = await driver.execute(
-        `DELETE FROM ${testTableName} WHERE email = $1`,
-        ['temp@example.com']
-      );
+      const result = await driver.execute(`DELETE FROM ${testTableName} WHERE email = $1`, [
+        'temp@example.com',
+      ]);
       expect(result.rowCount).toBe(1);
 
-      const check = await driver.query(
-        `SELECT * FROM ${testTableName} WHERE email = $1`,
-        ['temp@example.com']
-      );
+      const check = await driver.query(`SELECT * FROM ${testTableName} WHERE email = $1`, [
+        'temp@example.com',
+      ]);
       expect(check.rows).toHaveLength(0);
     });
   });
@@ -117,15 +116,17 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
   describe('Transactions', () => {
     it('should commit a transaction successfully', async () => {
       const result = await driver.transaction(async (trx) => {
-        await trx.execute(
-          `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-          ['Alice Brown', 'alice@example.com', 35]
-        );
+        await trx.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+          'Alice Brown',
+          'alice@example.com',
+          35,
+        ]);
 
-        await trx.execute(
-          `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-          ['Bob White', 'bob@example.com', 40]
-        );
+        await trx.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+          'Bob White',
+          'bob@example.com',
+          40,
+        ]);
 
         const count = await trx.query<{ count: number }>(
           `SELECT COUNT(*) as count FROM ${testTableName} WHERE email IN ($1, $2)`,
@@ -137,10 +138,10 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
 
       expect(result).toBe(2);
 
-      const verify = await driver.query(
-        `SELECT * FROM ${testTableName} WHERE email IN ($1, $2)`,
-        ['alice@example.com', 'bob@example.com']
-      );
+      const verify = await driver.query(`SELECT * FROM ${testTableName} WHERE email IN ($1, $2)`, [
+        'alice@example.com',
+        'bob@example.com',
+      ]);
       expect(verify.rows).toHaveLength(2);
     });
 
@@ -152,10 +153,11 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
 
       await expect(async () => {
         await driver.transaction(async (trx) => {
-          await trx.execute(
-            `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-            ['Charlie Green', 'charlie@example.com', 28]
-          );
+          await trx.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+            'Charlie Green',
+            'charlie@example.com',
+            28,
+          ]);
 
           throw new Error('Intentional rollback');
         });
@@ -166,25 +168,26 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL Driver Integration', () =
       );
       expect(Number(finalCount.rows[0].count)).toBe(startCount);
 
-      const verify = await driver.query(
-        `SELECT * FROM ${testTableName} WHERE email = $1`,
-        ['charlie@example.com']
-      );
+      const verify = await driver.query(`SELECT * FROM ${testTableName} WHERE email = $1`, [
+        'charlie@example.com',
+      ]);
       expect(verify.rows).toHaveLength(0);
     });
 
     it('should handle unique constraint violation and rollback', async () => {
-      await driver.execute(
-        `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-        ['David Black', 'david@example.com', 33]
-      );
+      await driver.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+        'David Black',
+        'david@example.com',
+        33,
+      ]);
 
       await expect(async () => {
         await driver.transaction(async (trx) => {
-          await trx.execute(
-            `INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`,
-            ['David Clone', 'david@example.com', 34]
-          );
+          await trx.execute(`INSERT INTO ${testTableName} (name, email, age) VALUES ($1, $2, $3)`, [
+            'David Clone',
+            'david@example.com',
+            34,
+          ]);
         });
       }).rejects.toThrow();
     });
@@ -198,7 +201,7 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
 
   beforeAll(async () => {
     driver = createPostgresDriver({
-      connectionString: process.env.DATABASE_URL as string
+      connectionString: process.env.DATABASE_URL as string,
     });
 
     client = createDbClient(driver, {
@@ -282,10 +285,9 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
         });
       }).rejects.toThrow('Force rollback');
 
-      const verify = await driver.query(
-        `SELECT * FROM ${testTableName} WHERE name = $1`,
-        ['Failed Product']
-      );
+      const verify = await driver.query(`SELECT * FROM ${testTableName} WHERE name = $1`, [
+        'Failed Product',
+      ]);
       expect(verify.rows).toHaveLength(0);
     });
 
@@ -295,12 +297,12 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
       const insertedIds = await client.transaction(ctx, async (trx) => {
         const result1 = await trx.raw<{ id: number }>(
           `INSERT INTO ${testTableName} (name, price, app_id, organization_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-          ['Product A', 10.00, ctx.appId, ctx.organizationId]
+          ['Product A', 10.0, ctx.appId, ctx.organizationId]
         );
 
         const result2 = await trx.raw<{ id: number }>(
           `INSERT INTO ${testTableName} (name, price, app_id, organization_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-          ['Product B', 20.00, ctx.appId, ctx.organizationId]
+          ['Product B', 20.0, ctx.appId, ctx.organizationId]
         );
 
         return [result1.rows[0].id, result2.rows[0].id];
@@ -318,17 +320,12 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
 
   describe('DbClient raw query methods', () => {
     it('should execute raw queries with client.raw()', async () => {
-      const result = await client.raw<{ test: number }>(
-        'SELECT 42 as test'
-      );
+      const result = await client.raw<{ test: number }>('SELECT 42 as test');
       expect(result.rows[0].test).toBe(42);
     });
 
     it('should execute raw queries with parameters', async () => {
-      const result = await client.raw<{ sum: number }>(
-        'SELECT $1 + $2 as sum',
-        [10, 20]
-      );
+      const result = await client.raw<{ sum: number }>('SELECT $1 + $2 as sum', [10, 20]);
       expect(result.rows[0].sum).toBe(30);
     });
 

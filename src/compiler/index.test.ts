@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { SQLCompiler, createCompiler } from './index.js';
+import { describe, expect, it } from 'vitest';
 import type { QueryAST, TenantContext } from '../types/index.js';
+import { SQLCompiler, createCompiler } from './index.js';
 
 const mockCtx: TenantContext = {
   appId: 'test-app',

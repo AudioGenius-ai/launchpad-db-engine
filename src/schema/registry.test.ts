@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchemaRegistry, createSchemaRegistry } from './registry.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Driver, QueryResult } from '../driver/types.js';
 import type { SchemaDefinition, TableDefinition } from '../types/index.js';
+import { SchemaRegistry, createSchemaRegistry } from './registry.js';
 
 // Track all execute calls across driver and transactions
 let allExecuteCalls: Array<[string, unknown[]?]> = [];
@@ -627,8 +627,7 @@ describe('SchemaRegistry', () => {
       });
 
       const createTableCall = allExecuteCalls.find(
-        (c) =>
-          c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
+        (c) => c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
       );
       expect(createTableCall).toBeDefined();
       expect(createTableCall![0]).toContain('JSONB');
@@ -647,8 +646,7 @@ describe('SchemaRegistry', () => {
       });
 
       const createTableCall = allExecuteCalls.find(
-        (c) =>
-          c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
+        (c) => c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
       );
       expect(createTableCall).toBeDefined();
       expect(createTableCall![0]).toContain('JSON');
@@ -667,8 +665,7 @@ describe('SchemaRegistry', () => {
       });
 
       const createTableCall = allExecuteCalls.find(
-        (c) =>
-          c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
+        (c) => c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('lp_schema_registry')
       );
       expect(createTableCall).toBeDefined();
       expect(createTableCall![0]).toContain('TEXT');
@@ -687,8 +684,7 @@ describe('SchemaRegistry', () => {
       });
 
       const createTableCall = allExecuteCalls.find(
-        (c) =>
-          c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('custom_registry')
+        (c) => c[0].includes('CREATE TABLE IF NOT EXISTS') && c[0].includes('custom_registry')
       );
       expect(createTableCall).toBeDefined();
     });
@@ -799,10 +795,9 @@ describe('SchemaRegistry', () => {
 
       await registry.listSchemas('test-app');
 
-      expect(driver.query).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE app_id = $1'),
-        ['test-app']
-      );
+      expect(driver.query).toHaveBeenCalledWith(expect.stringContaining('WHERE app_id = $1'), [
+        'test-app',
+      ]);
     });
   });
 

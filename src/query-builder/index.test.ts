@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  SelectBuilder,
-  InsertBuilder,
-  UpdateBuilder,
-  DeleteBuilder,
-  TableBuilder,
-} from './index.js';
-import type { Driver, TransactionClient } from '../driver/types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SQLCompiler } from '../compiler/index.js';
-import type { TenantContext, QueryResult } from '../types/index.js';
+import type { Driver, TransactionClient } from '../driver/types.js';
+import type { QueryResult, TenantContext } from '../types/index.js';
+import {
+  DeleteBuilder,
+  InsertBuilder,
+  SelectBuilder,
+  TableBuilder,
+  UpdateBuilder,
+} from './index.js';
 
 // Mock driver
 function createMockDriver(): Driver {
@@ -134,9 +134,7 @@ describe('SelectBuilder', () => {
       builder.whereIn('status', ['active', 'pending']);
       builder.toSQL();
       const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(callArg.where).toEqual([
-        { column: 'status', op: 'IN', value: ['active', 'pending'] },
-      ]);
+      expect(callArg.where).toEqual([{ column: 'status', op: 'IN', value: ['active', 'pending'] }]);
     });
   });
 

@@ -86,8 +86,10 @@ describe('Schema Extractor', () => {
       const schema = extractSchemaFromEntity(User);
 
       expect(schema.tables.users.indexes).toHaveLength(2);
-      const emailIndex = schema.tables.users.indexes!.find(i => i.columns.includes('email'));
-      const createdAtIndex = schema.tables.users.indexes!.find(i => i.columns.includes('created_at'));
+      const emailIndex = schema.tables.users.indexes!.find((i) => i.columns.includes('email'));
+      const createdAtIndex = schema.tables.users.indexes!.find((i) =>
+        i.columns.includes('created_at')
+      );
       expect(emailIndex).toBeDefined();
       expect(emailIndex!.unique).toBe(true);
       expect(emailIndex!.name).toBe('idx_users_email');
@@ -266,9 +268,7 @@ describe('Schema Extractor', () => {
         id!: string;
       }
 
-      expect(() => columnToProperty(User, 'non_existent')).toThrow(
-        'Column non_existent not found'
-      );
+      expect(() => columnToProperty(User, 'non_existent')).toThrow('Column non_existent not found');
     });
   });
 });

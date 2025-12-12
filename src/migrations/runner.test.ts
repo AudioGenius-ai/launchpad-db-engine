@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MigrationRunner } from './runner.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Driver } from '../driver/types.js';
 import type { DialectName, QueryResult } from '../types/index.js';
+import { MigrationRunner } from './runner.js';
 
 function createMockDriver(dialect: DialectName): Driver {
   const queryResults: Record<string, QueryResult> = {};
@@ -52,20 +52,12 @@ INSERT INTO users VALUES ('test');
 -- down
 DROP TABLE users;`;
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
       expect(result).toEqual({
         version: 20240101000000,
         name: 'create_users',
-        up: [
-          'CREATE TABLE users (id UUID PRIMARY KEY)',
-          "INSERT INTO users VALUES ('test')",
-        ],
+        up: ['CREATE TABLE users (id UUID PRIMARY KEY)', "INSERT INTO users VALUES ('test')"],
         down: ['DROP TABLE users'],
         scope: 'core',
         templateKey: undefined,
@@ -77,12 +69,7 @@ DROP TABLE users;`;
       const content = `-- up
 CREATE INDEX idx_users_email ON users(email);`;
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
       expect(result).toEqual({
         version: 20240201000000,
@@ -128,21 +115,14 @@ DROP TABLE template_data;`;
       expect(
         (runner as any).parseMigrationFile('noversion__name.sql', content, 'core', undefined)
       ).toBeNull();
-      expect(
-        (runner as any).parseMigrationFile('123.sql', content, 'core', undefined)
-      ).toBeNull();
+      expect((runner as any).parseMigrationFile('123.sql', content, 'core', undefined)).toBeNull();
     });
 
     it('should return null when no up section found', () => {
       const filename = '20240101000000__empty.sql';
       const content = '-- down\nDROP TABLE test;';
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
       expect(result).toBeNull();
     });
@@ -155,12 +135,7 @@ CREATE TABLE test (id INTEGER);
 -- DOWN
 DROP TABLE test;`;
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
       expect(result?.up).toEqual(['CREATE TABLE test (id INTEGER)']);
       expect(result?.down).toEqual(['DROP TABLE test']);
@@ -178,17 +153,9 @@ DROP TABLE test;`;
 -- down
   DROP TABLE test;  `;
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
-      expect(result?.up).toEqual([
-        'CREATE TABLE test (id INTEGER)',
-        'INSERT INTO test VALUES (1)',
-      ]);
+      expect(result?.up).toEqual(['CREATE TABLE test (id INTEGER)', 'INSERT INTO test VALUES (1)']);
       expect(result?.down).toEqual(['DROP TABLE test']);
     });
 
@@ -200,12 +167,7 @@ INSERT INTO config VALUES ('key', 'value;with;semicolons');
 -- down
 DELETE FROM config WHERE key = 'key';`;
 
-      const result = (runner as any).parseMigrationFile(
-        filename,
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
       expect(result?.up.length).toBeGreaterThan(0);
       expect(result?.down.length).toBeGreaterThan(0);
@@ -321,12 +283,7 @@ DELETE FROM config WHERE key = 'key';`;
 
       for (const { filename, expected } of testCases) {
         const content = '-- up\nCREATE TABLE test;';
-        const result = (runner as any).parseMigrationFile(
-          filename,
-          content,
-          'core',
-          undefined
-        );
+        const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
         expect(result?.version).toBe(expected);
       }
     });
@@ -334,21 +291,17 @@ DELETE FROM config WHERE key = 'key';`;
 
   describe('migration ordering', () => {
     it('should parse versions as numbers for proper sorting', () => {
-      const versions = [
-        20240101000000, 20240102000000, 20240103000000, 1, 2, 100, 20231231235959,
-      ];
+      const versions = [20240101000000, 20240102000000, 20240103000000, 1, 2, 100, 20231231235959];
 
       const sorted = [...versions].sort((a, b) => a - b);
 
-      expect(sorted).toEqual([1, 2, 100, 20231231235959, 20240101000000, 20240102000000, 20240103000000]);
+      expect(sorted).toEqual([
+        1, 2, 100, 20231231235959, 20240101000000, 20240102000000, 20240103000000,
+      ]);
     });
 
     it('should extract and compare versions correctly', () => {
-      const files = [
-        '20240103000000__third.sql',
-        '1__first.sql',
-        '20240102000000__second.sql',
-      ];
+      const files = ['20240103000000__third.sql', '1__first.sql', '20240102000000__second.sql'];
 
       const versions = files
         .map((f) => {
@@ -401,12 +354,7 @@ INSERT INTO config VALUES ('version', '1');
 DROP TABLE accounts;
 DROP TABLE users;`;
 
-      const result = (runner as any).parseMigrationFile(
-        '1__multi.sql',
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile('1__multi.sql', content, 'core', undefined);
 
       expect(result?.up.length).toBe(3);
       expect(result?.down.length).toBe(2);
@@ -433,12 +381,7 @@ CREATE TABLE test (id INTEGER);
 -- down
 DROP TABLE test;`;
 
-      const result = (runner as any).parseMigrationFile(
-        '1__test.sql',
-        content,
-        'core',
-        undefined
-      );
+      const result = (runner as any).parseMigrationFile('1__test.sql', content, 'core', undefined);
 
       expect(result?.down).toEqual(['DROP TABLE test']);
     });

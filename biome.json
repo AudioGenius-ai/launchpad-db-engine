@@ -8,10 +8,15 @@
     "rules": {
       "recommended": true,
       "complexity": {
-        "noExcessiveCognitiveComplexity": "warn"
+        "noExcessiveCognitiveComplexity": "warn",
+        "noBannedTypes": "warn"
       },
       "style": {
-        "noNonNullAssertion": "off"
+        "noNonNullAssertion": "off",
+        "noParameterAssign": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
       }
     }
   },
@@ -28,6 +33,6 @@
     }
   },
   "files": {
-    "ignore": ["node_modules", "dist", "*.d.ts"]
+    "ignore": ["node_modules", "dist", "coverage", "*.d.ts"]
   }
 }

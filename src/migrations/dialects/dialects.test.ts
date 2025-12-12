@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { postgresDialect } from './postgresql.js';
+import { describe, expect, it } from 'vitest';
+import type { ColumnDefinition, ColumnType, TableDefinition } from '../../types/index.js';
 import { mysqlDialect } from './mysql.js';
+import { postgresDialect } from './postgresql.js';
 import { sqliteDialect } from './sqlite.js';
-import type { ColumnDefinition, TableDefinition, ColumnType } from '../../types/index.js';
 
 describe('PostgreSQL Dialect', () => {
   describe('mapType', () => {
@@ -467,9 +467,9 @@ describe('SQLite Dialect', () => {
 
   describe('addForeignKey', () => {
     it('should throw error with helpful message', () => {
-      expect(() =>
-        sqliteDialect.addForeignKey('posts', 'user_id', 'users', 'id')
-      ).toThrow('SQLite does not support adding foreign keys after table creation');
+      expect(() => sqliteDialect.addForeignKey('posts', 'user_id', 'users', 'id')).toThrow(
+        'SQLite does not support adding foreign keys after table creation'
+      );
     });
   });
 

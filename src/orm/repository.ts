@@ -171,15 +171,17 @@ export class Repository<T> {
     return builder;
   }
 
-  private applyWhereToUpdate<
-    B extends { where: (col: string, op: Operator, val: unknown) => B },
-  >(builder: B, where: WhereCondition<T>): B {
+  private applyWhereToUpdate<B extends { where: (col: string, op: Operator, val: unknown) => B }>(
+    builder: B,
+    where: WhereCondition<T>
+  ): B {
     return this.applyWhere(builder, where);
   }
 
-  private applyWhereToDelete<
-    B extends { where: (col: string, op: Operator, val: unknown) => B },
-  >(builder: B, where: WhereCondition<T>): B {
+  private applyWhereToDelete<B extends { where: (col: string, op: Operator, val: unknown) => B }>(
+    builder: B,
+    where: WhereCondition<T>
+  ): B {
     return this.applyWhere(builder, where);
   }
 
