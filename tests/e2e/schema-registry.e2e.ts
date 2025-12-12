@@ -508,7 +508,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
     });
 
     it('should list schemas for specific app', async () => {
-      const schema: SchemaDefinition = {
+      const schema1: SchemaDefinition = {
         name: 'test',
         version: '1.0.0',
         tables: {
@@ -523,18 +523,33 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
         },
       };
 
+      const schema2: SchemaDefinition = {
+        name: 'test',
+        version: '1.0.0',
+        tables: {
+          test_posts: {
+            columns: {
+              id: { type: 'uuid', required: true, primary: true },
+              title: { type: 'string', required: true },
+              app_id: { type: 'string', required: true, tenant: true },
+              organization_id: { type: 'string', required: true, tenant: true },
+            },
+          },
+        },
+      };
+
       await registry.register({
         appId: testAppId,
         schemaName: 'public',
         version: '1.0.0',
-        schema,
+        schema: schema1,
       });
 
       await registry.register({
         appId: testAppId2,
         schemaName: 'public',
         version: '1.0.0',
-        schema,
+        schema: schema2,
       });
 
       const app1Schemas = await registry.listSchemas(testAppId);

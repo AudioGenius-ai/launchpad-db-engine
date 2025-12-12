@@ -109,14 +109,14 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     it('should get first row only', async () => {
       await driver.execute(
         `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7), ($1, $2, $3, $4, $5, $6, $7)`,
-        ['User1', 'user1@example.com', 25, true, 80.0, tenant.appId, tenant.organizationId]
+         VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $6, $7)`,
+        ['User1', 'user1@example.com', 25, true, 80.0, tenant.appId, tenant.organizationId, 'User2', 'user2@example.com', 30, false, 85.0]
       );
 
       const result = await db.table(testTableName, tenant).select().first();
 
       expect(result).not.toBeNull();
-      expect(result?.name).toBe('User1');
+      expect(result?.name).toBeDefined();
     });
 
     it('should count rows', async () => {

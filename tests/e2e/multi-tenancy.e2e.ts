@@ -167,17 +167,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
   describe('Cross-Tenant Query Prevention', () => {
     it('should prevent cross-tenant data access in queries', async () => {
-      // Insert data for both tenants
-      const user1Id = 'user-1';
-      const user2Id = 'user-2';
-
+      // Insert data for both tenants (let PostgreSQL generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
         [
-          user1Id,
           'User1',
-          'user1@example.com',
+          'user1@cross.com',
           tenant1.appId,
           tenant1.organizationId,
           'secret-data-1',
@@ -185,12 +181,11 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
         [
-          user2Id,
           'User2',
-          'user2@example.com',
+          'user2@cross.com',
           tenant2.appId,
           tenant2.organizationId,
           'secret-data-2',
@@ -458,8 +453,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
   describe('RLS Policy Compatibility', () => {
     it('should work with PostgreSQL RLS policies when enabled', async () => {
       // Create RLS policy on test table
+      // FORCE is needed because table owner bypasses RLS by default
       await driver.execute(`
         ALTER TABLE ${testTableName} ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE ${testTableName} FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_tenant_isolation ON ${testTableName}
         FOR ALL
@@ -496,8 +493,9 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         });
       });
 
-      // Cleanup: disable RLS
+      // Cleanup: disable RLS and FORCE
       await driver.execute(`
+        ALTER TABLE ${testTableName} NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE ${testTableName} DISABLE ROW LEVEL SECURITY;
         DROP POLICY rls_tenant_isolation ON ${testTableName};
       `);

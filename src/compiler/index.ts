@@ -78,12 +78,13 @@ export class SQLCompiler {
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
+      const tablePrefix = ast.joins?.length ? `${ast.table}.` : '';
       predicates.push(
-        `${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.appId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
       );
       params.push(ctx.appId);
       predicates.push(
-        `${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.organizationId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
       );
       params.push(ctx.organizationId);
     }

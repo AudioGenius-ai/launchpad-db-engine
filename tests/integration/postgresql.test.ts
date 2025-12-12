@@ -326,7 +326,7 @@ describe.skipIf(!process.env.DATABASE_URL)('DbClient Integration', () => {
     });
 
     it('should execute raw queries with parameters', async () => {
-      const result = await client.raw<{ sum: number }>('SELECT $1 + $2 as sum', [10, 20]);
+      const result = await client.raw<{ sum: number }>('SELECT $1::int + $2::int as sum', [10, 20]);
       expect(result.rows[0].sum).toBe(30);
     });
 
