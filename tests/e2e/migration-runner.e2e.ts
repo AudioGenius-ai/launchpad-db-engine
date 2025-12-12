@@ -16,7 +16,7 @@ describe.skipIf(!DATABASE_URL)('MigrationRunner E2E Tests', () => {
 
   beforeAll(async () => {
     if (!DATABASE_URL) return;
-    driver = createPostgresDriver(DATABASE_URL);
+    driver = createPostgresDriver({ connectionString: DATABASE_URL });
   }, TEST_TIMEOUT);
 
   afterAll(async () => {
