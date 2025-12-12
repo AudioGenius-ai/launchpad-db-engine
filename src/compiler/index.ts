@@ -283,6 +283,10 @@ export class SQLCompiler {
 
   private quoteIdentifier(identifier: string): string {
     if (identifier === '*') return identifier;
+    // Don't quote SQL expressions (functions, aliases, etc.)
+    if (identifier.includes('(') || identifier.toLowerCase().includes(' as ')) {
+      return identifier;
+    }
     if (identifier.includes('.')) {
       return identifier
         .split('.')
