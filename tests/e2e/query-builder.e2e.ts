@@ -632,12 +632,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
       const result = await db
         .table(testTableName, tenant)
         .select('name')
-        .innerJoin(
-          testJoinTableName,
-          `${testTableName}.id`,
-          `${testJoinTableName}.user_id`,
-          'profiles'
-        )
+        .innerJoin(testJoinTableName, `${testTableName}.id`, 'profiles.user_id', 'profiles')
         .execute();
 
       expect(result).toHaveLength(2);

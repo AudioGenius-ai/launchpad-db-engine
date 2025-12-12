@@ -440,6 +440,18 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
   describe('RLS Policy Compatibility', () => {
     it('should work with PostgreSQL RLS policies when enabled', async () => {
+      // Check if running as superuser (superusers bypass RLS even with FORCE)
+      const superuserCheck = await driver.query<{ usesuper: boolean }>(
+        'SELECT usesuper FROM pg_user WHERE usename = current_user'
+      );
+      const isSuperuser = superuserCheck.rows[0]?.usesuper ?? false;
+
+      if (isSuperuser) {
+        // Skip RLS test when running as superuser since superusers bypass RLS
+        console.log('Skipping RLS test: connection is superuser');
+        return;
+      }
+
       // Create RLS policy on test table
       // FORCE is needed because table owner bypasses RLS by default
       await driver.execute(`
