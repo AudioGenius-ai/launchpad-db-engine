@@ -159,7 +159,7 @@ DROP TABLE test;`;
       expect(result?.down).toEqual(['DROP TABLE test']);
     });
 
-    it('should split on semicolons', () => {
+    it('should handle semicolons inside single-quoted strings', () => {
       const filename = '20240101000000__semicolon.sql';
       const content = `-- up
 INSERT INTO config VALUES ('key', 'value;with;semicolons');
@@ -169,8 +169,45 @@ DELETE FROM config WHERE key = 'key';`;
 
       const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
 
-      expect(result?.up.length).toBeGreaterThan(0);
-      expect(result?.down.length).toBeGreaterThan(0);
+      expect(result?.up).toHaveLength(1);
+      expect(result?.up[0]).toBe("INSERT INTO config VALUES ('key', 'value;with;semicolons')");
+      expect(result?.down).toHaveLength(1);
+    });
+
+    it('should handle PostgreSQL dollar-quoted strings', () => {
+      const filename = '20240101000000__dollar_quote.sql';
+      const content = `-- up
+CREATE FUNCTION test() RETURNS void AS $$
+BEGIN
+  INSERT INTO log VALUES ('test;value');
+END;
+$$ LANGUAGE plpgsql;
+
+-- down
+DROP FUNCTION test();`;
+
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
+
+      expect(result?.up).toHaveLength(1);
+      expect(result?.up[0]).toContain('$$');
+      expect(result?.up[0]).toContain("INSERT INTO log VALUES ('test;value')");
+    });
+
+    it('should handle SQL comments with semicolons', () => {
+      const filename = '20240101000000__comments.sql';
+      const content = `-- up
+-- Setup comment with ; semicolon
+CREATE TABLE test (id INTEGER);
+INSERT INTO test VALUES (1);
+
+-- down
+DROP TABLE test;`;
+
+      const result = (runner as any).parseMigrationFile(filename, content, 'core', undefined);
+
+      expect(result?.up).toHaveLength(2);
+      expect(result?.up[0]).toContain('-- Setup comment with ; semicolon');
+      expect(result?.up[0]).toContain('CREATE TABLE test');
     });
   });
 

@@ -23,7 +23,7 @@ describe('SQLCompiler', () => {
         const { sql, params } = compiler.compile(ast, mockCtx);
 
         expect(sql).toBe(
-          'SELECT id, name FROM "users" WHERE "app_id" = $1 AND "organization_id" = $2'
+          'SELECT "id", "name" FROM "users" WHERE "app_id" = $1 AND "organization_id" = $2'
         );
         expect(params).toEqual(['test-app', 'org-123']);
       });
@@ -141,8 +141,40 @@ describe('SQLCompiler', () => {
         const { sql, params } = compiler.compile(ast, mockCtx);
 
         expect(sql).toContain('"status" IN ($3, $4)');
-        // IN clause values are pushed as an array
-        expect(params[2]).toEqual(['active', 'pending']);
+        // IN clause values should be spread as individual params
+        expect(params[2]).toEqual('active');
+        expect(params[3]).toEqual('pending');
+        expect(params.length).toBe(4); // 2 tenant params + 2 IN values
+      });
+
+      it('should compile SELECT with empty IN clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'status', op: 'IN', value: [] }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        // Empty IN should return no rows (1 = 0)
+        expect(sql).toContain('1 = 0');
+        expect(params.length).toBe(2); // Only tenant params
+      });
+
+      it('should compile SELECT with empty NOT IN clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'status', op: 'NOT IN', value: [] }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        // Empty NOT IN should return all rows (1 = 1)
+        expect(sql).toContain('1 = 1');
+        expect(params.length).toBe(2); // Only tenant params
       });
 
       it('should compile SELECT with JOIN', () => {
@@ -162,7 +194,7 @@ describe('SQLCompiler', () => {
 
         const { sql } = compiler.compile(ast, mockCtx);
 
-        expect(sql).toContain('INNER JOIN "users" ON orders.user_id = users.id');
+        expect(sql).toContain('INNER JOIN "users" ON "orders"."user_id" = "users"."id"');
       });
 
       it('should compile SELECT with JOIN and alias', () => {
@@ -183,7 +215,7 @@ describe('SQLCompiler', () => {
 
         const { sql } = compiler.compile(ast, mockCtx);
 
-        expect(sql).toContain('LEFT JOIN "users" AS "u" ON orders.user_id = u.id');
+        expect(sql).toContain('LEFT JOIN "users" AS "u" ON "orders"."user_id" = "u"."id"');
       });
     });
 
@@ -366,7 +398,7 @@ describe('SQLCompiler', () => {
       expect(sql).toContain('`app_id`');
     });
 
-    it('should not add RETURNING clause', () => {
+    it('should throw error when RETURNING clause is requested', () => {
       const ast: QueryAST = {
         type: 'insert',
         table: 'users',
@@ -374,9 +406,9 @@ describe('SQLCompiler', () => {
         returning: ['id'],
       };
 
-      const { sql } = compiler.compile(ast, mockCtx);
-
-      expect(sql).not.toContain('RETURNING');
+      expect(() => compiler.compile(ast, mockCtx)).toThrow(
+        'MySQL does not support RETURNING clause'
+      );
     });
   });
 
@@ -409,6 +441,19 @@ describe('SQLCompiler', () => {
 
       expect(sql).toContain('"users"');
       expect(sql).toContain('"app_id"');
+    });
+
+    it('should support RETURNING clause', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: { name: 'John' },
+        returning: ['id', 'name'],
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('RETURNING "id", "name"');
     });
   });
 

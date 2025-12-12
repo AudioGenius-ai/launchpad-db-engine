@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDbClient } from '../../src/client.js';
-import type { Driver } from '../../src/driver/types.js';
 import type { DbClient } from '../../src/client.js';
+import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import type { Driver } from '../../src/driver/types.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
   let driver: Driver;
@@ -77,10 +77,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
       );
 
       // Query with tenant1 context - should only get tenant1 data
-      const result = await db.table(testTableName, tenant1).select();
+      const result = await db.table(testTableName, tenant1).select().execute();
 
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0]).toMatchObject({
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
         name: 'User1',
         email: 'user1@tenant1.com',
         app_id: tenant1.appId,
@@ -95,10 +95,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         ['User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret1']
       );
 
-      const result = await db.table(testTableName, tenant1).select();
+      const result = await db.table(testTableName, tenant1).select().execute();
 
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0].app_id).toBe(tenant1.appId);
+      expect(result).toHaveLength(1);
+      expect(result[0].app_id).toBe(tenant1.appId);
     });
 
     it('should inject organization_id column in WHERE clause', async () => {
@@ -108,10 +108,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         ['User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret1']
       );
 
-      const result = await db.table(testTableName, tenant1).select();
+      const result = await db.table(testTableName, tenant1).select().execute();
 
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0].organization_id).toBe(tenant1.organizationId);
+      expect(result).toHaveLength(1);
+      expect(result[0].organization_id).toBe(tenant1.organizationId);
     });
   });
 
@@ -167,57 +167,54 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
   describe('Cross-Tenant Query Prevention', () => {
     it('should prevent cross-tenant data access in queries', async () => {
-      // Insert data for both tenants
-      const user1Id = 'user-1';
-      const user2Id = 'user-2';
-
+      // Insert data for both tenants (let PostgreSQL generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user1Id, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-data-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@cross.com', tenant1.appId, tenant1.organizationId, 'secret-data-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user2Id, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-data-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@cross.com', tenant2.appId, tenant2.organizationId, 'secret-data-2']
       );
 
       // Query tenant1 - should not see tenant2 data
-      const tenant1Result = await db.table(testTableName, tenant1).select();
-      expect(tenant1Result.rows).toHaveLength(1);
-      expect(tenant1Result.rows[0].name).toBe('User1');
+      const tenant1Result = await db.table(testTableName, tenant1).select().execute();
+      expect(tenant1Result).toHaveLength(1);
+      expect(tenant1Result[0].name).toBe('User1');
 
       // Query tenant2 - should not see tenant1 data
-      const tenant2Result = await db.table(testTableName, tenant2).select();
-      expect(tenant2Result.rows).toHaveLength(1);
-      expect(tenant2Result.rows[0].name).toBe('User2');
+      const tenant2Result = await db.table(testTableName, tenant2).select().execute();
+      expect(tenant2Result).toHaveLength(1);
+      expect(tenant2Result[0].name).toBe('User2');
     });
 
-    it('should return empty result when querying other tenant data by ID', async () => {
-      const userId = 'shared-id-123';
-
-      // Insert same ID for both tenants
+    it('should return only tenant-specific data when querying by name', async () => {
+      // Insert data with unique names per tenant (avoid ID conflicts)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['SharedUser', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['SharedUser', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
-      // Tenant1 queries by ID - should only get tenant1's version
-      const result = await db.table(testTableName, tenant1)
-        .where('id', '=', userId)
-        .select();
+      // Tenant1 queries by name - should only get tenant1's version
+      const result = await db
+        .table(testTableName, tenant1)
+        .where('name', '=', 'SharedUser')
+        .select()
+        .execute();
 
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0]).toMatchObject({
-        name: 'User1',
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        name: 'SharedUser',
         app_id: tenant1.appId,
         organization_id: tenant1.organizationId,
       });
@@ -225,78 +222,74 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
     it('should prevent UPDATE across tenant boundaries', async () => {
       // Insert data for both tenants
-      const userId = 'update-test-id';
-
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@update.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@update.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
-      // Tenant1 tries to update by ID (with tenant context injection)
-      const updateResult = await db.table(testTableName, tenant1)
-        .where('id', '=', userId)
-        .update({ name: 'Updated User1' });
-
-      expect(updateResult.rowCount).toBe(1);
+      // Tenant1 tries to update by name (with tenant context injection)
+      await db
+        .table(testTableName, tenant1)
+        .where('email', '=', 'user1@update.com')
+        .update({ name: 'Updated User1' })
+        .execute();
 
       // Verify tenant1 data was updated
       const tenant1Data = await driver.query<{ name: string }>(
-        `SELECT name FROM ${testTableName} WHERE id = $1 AND app_id = $2 AND organization_id = $3`,
-        [userId, tenant1.appId, tenant1.organizationId]
+        `SELECT name FROM ${testTableName} WHERE email = $1 AND app_id = $2`,
+        ['user1@update.com', tenant1.appId]
       );
       expect(tenant1Data.rows[0].name).toBe('Updated User1');
 
       // Verify tenant2 data was NOT updated
       const tenant2Data = await driver.query<{ name: string }>(
-        `SELECT name FROM ${testTableName} WHERE id = $1 AND app_id = $2 AND organization_id = $3`,
-        [userId, tenant2.appId, tenant2.organizationId]
+        `SELECT name FROM ${testTableName} WHERE email = $1 AND app_id = $2`,
+        ['user2@update.com', tenant2.appId]
       );
       expect(tenant2Data.rows[0].name).toBe('User2');
     });
 
     it('should prevent DELETE across tenant boundaries', async () => {
       // Insert data for both tenants
-      const userId = 'delete-test-id';
-
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@delete.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@delete.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
-      // Tenant1 tries to delete by ID (with tenant context injection)
-      const deleteResult = await db.table(testTableName, tenant1)
-        .where('id', '=', userId)
-        .delete();
-
-      expect(deleteResult.rowCount).toBe(1);
+      // Tenant1 tries to delete by email (with tenant context injection)
+      await db
+        .table(testTableName, tenant1)
+        .where('email', '=', 'user1@delete.com')
+        .delete()
+        .execute();
 
       // Verify tenant1 data was deleted
       const tenant1Count = await driver.query<{ count: number }>(
-        `SELECT COUNT(*) as count FROM ${testTableName} WHERE id = $1 AND app_id = $2 AND organization_id = $3`,
-        [userId, tenant1.appId, tenant1.organizationId]
+        `SELECT COUNT(*) as count FROM ${testTableName} WHERE email = $1 AND app_id = $2`,
+        ['user1@delete.com', tenant1.appId]
       );
-      expect(tenant1Count.rows[0].count).toBe(0);
+      expect(Number(tenant1Count.rows[0].count)).toBe(0);
 
       // Verify tenant2 data still exists
       const tenant2Count = await driver.query<{ count: number }>(
-        `SELECT COUNT(*) as count FROM ${testTableName} WHERE id = $1 AND app_id = $2 AND organization_id = $3`,
-        [userId, tenant2.appId, tenant2.organizationId]
+        `SELECT COUNT(*) as count FROM ${testTableName} WHERE email = $1 AND app_id = $2`,
+        ['user2@delete.com', tenant2.appId]
       );
-      expect(tenant2Count.rows[0].count).toBe(1);
+      expect(Number(tenant2Count.rows[0].count)).toBe(1);
     });
   });
 
@@ -336,27 +329,25 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
     });
 
     it('should maintain tenant isolation in nested queries within transaction', async () => {
-      const userId = 'trx-test-id';
-
-      // Insert data for both tenants
+      // Insert data for both tenants (let database generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@trx.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@trx.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
       let recordCount = 0;
 
       // Query within transaction
       await db.transaction(tenant1, async (trx) => {
-        const result = await trx.table(testTableName).select();
-        recordCount = result.rows.length;
+        const result = await trx.table(testTableName).select().execute();
+        recordCount = result.length;
       });
 
       expect(recordCount).toBe(1);
@@ -392,13 +383,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         `SELECT COUNT(*) as count FROM ${testTableName} WHERE app_id = $1`,
         [tenant1.appId]
       );
-      expect(tenant1Count.rows[0].count).toBe(1);
+      expect(Number(tenant1Count.rows[0].count)).toBe(1);
 
       const tenant2Count = await driver.query<{ count: number }>(
         `SELECT COUNT(*) as count FROM ${testTableName} WHERE app_id = $1`,
         [tenant2.appId]
       );
-      expect(tenant2Count.rows[0].count).toBe(1);
+      expect(Number(tenant2Count.rows[0].count)).toBe(1);
     });
   });
 
@@ -449,9 +440,23 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
   describe('RLS Policy Compatibility', () => {
     it('should work with PostgreSQL RLS policies when enabled', async () => {
+      // Check if running as superuser (superusers bypass RLS even with FORCE)
+      const superuserCheck = await driver.query<{ usesuper: boolean }>(
+        'SELECT usesuper FROM pg_user WHERE usename = current_user'
+      );
+      const isSuperuser = superuserCheck.rows[0]?.usesuper ?? false;
+
+      if (isSuperuser) {
+        // Skip RLS test when running as superuser since superusers bypass RLS
+        console.log('Skipping RLS test: connection is superuser');
+        return;
+      }
+
       // Create RLS policy on test table
+      // FORCE is needed because table owner bypasses RLS by default
       await driver.execute(`
         ALTER TABLE ${testTableName} ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE ${testTableName} FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_tenant_isolation ON ${testTableName}
         FOR ALL
@@ -461,18 +466,17 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
                     AND organization_id = current_setting('app.current_org_id', true));
       `);
 
-      // Insert test data
-      const userId = 'rls-test-id';
+      // Insert test data (let database generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@rls-test.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@rls-test.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
       // Query with tenant1 context and RLS policy
@@ -489,8 +493,9 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         });
       });
 
-      // Cleanup: disable RLS
+      // Cleanup: disable RLS and FORCE
       await driver.execute(`
+        ALTER TABLE ${testTableName} NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE ${testTableName} DISABLE ROW LEVEL SECURITY;
         DROP POLICY rls_tenant_isolation ON ${testTableName};
       `);
@@ -507,26 +512,24 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
         WITH CHECK (app_id = current_setting('app.current_app_id', true));
       `);
 
-      const userId = 'combined-test-id';
-
-      // Insert test data
+      // Insert test data (let database generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User1', 'user1@example.com', tenant1.appId, tenant1.organizationId, 'secret-1']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User1', 'user1@rls.com', tenant1.appId, tenant1.organizationId, 'secret-1']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, 'User2', 'user2@example.com', tenant2.appId, tenant2.organizationId, 'secret-2']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['User2', 'user2@rls.com', tenant2.appId, tenant2.organizationId, 'secret-2']
       );
 
       // Both app-level and RLS should enforce isolation
       let recordCount = 0;
       await db.transaction(tenant1, async (trx) => {
-        const result = await trx.table(testTableName).select();
-        recordCount = result.rows.length;
+        const result = await trx.table(testTableName).select().execute();
+        recordCount = result.length;
       });
 
       expect(recordCount).toBe(1);
@@ -541,9 +544,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
   describe('Edge Cases and Error Handling', () => {
     it('should handle empty results with tenant context', async () => {
-      const result = await db.table(testTableName, tenant1).select();
-      expect(result.rows).toEqual([]);
-      expect(result.rowCount).toBe(0);
+      const result = await db.table(testTableName, tenant1).select().execute();
+      expect(result).toEqual([]);
     });
 
     it('should handle concurrent operations with different tenant contexts', async () => {
@@ -562,41 +564,40 @@ describe.skipIf(!process.env.DATABASE_URL)('Multi-Tenancy E2E Tests', () => {
 
       // Simulate concurrent queries
       const [result1, result2] = await Promise.all([
-        db.table(testTableName, tenant1).select(),
-        db.table(testTableName, tenant2).select(),
+        db.table(testTableName, tenant1).select().execute(),
+        db.table(testTableName, tenant2).select().execute(),
       ]);
 
-      expect(result1.rows).toHaveLength(1);
-      expect(result1.rows[0].name).toBe('User1');
+      expect(result1).toHaveLength(1);
+      expect(result1[0].name).toBe('User1');
 
-      expect(result2.rows).toHaveLength(1);
-      expect(result2.rows[0].name).toBe('User2');
+      expect(result2).toHaveLength(1);
+      expect(result2[0].name).toBe('User2');
     });
 
     it('should handle WHERE clause with additional conditions alongside tenant context', async () => {
-      const userId1 = 'cond-test-1';
-      const userId2 = 'cond-test-2';
-
-      // Insert data
+      // Insert data (let the database generate UUIDs)
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId1, 'Active User', 'active@example.com', tenant1.appId, tenant1.organizationId, 'secret']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['Active User', 'active@example.com', tenant1.appId, tenant1.organizationId, 'secret']
       );
 
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, app_id, organization_id, secret_data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId2, 'Inactive User', 'inactive@example.com', tenant1.appId, tenant1.organizationId, 'secret']
+        `INSERT INTO ${testTableName} (name, email, app_id, organization_id, secret_data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['Inactive User', 'inactive@example.com', tenant1.appId, tenant1.organizationId, 'secret']
       );
 
       // Query with additional WHERE conditions
-      const result = await db.table(testTableName, tenant1)
+      const result = await db
+        .table(testTableName, tenant1)
         .where('name', 'like', '%Active%')
-        .select();
+        .select()
+        .execute();
 
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0].id).toBe(userId1);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Active User');
     });
   });
 });

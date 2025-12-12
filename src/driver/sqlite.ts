@@ -53,11 +53,15 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
         },
       };
 
-      const transaction = db.transaction(async () => {
-        return await fn(client);
-      });
-
-      return transaction() as T;
+      db.exec('BEGIN');
+      try {
+        const result = await fn(client);
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
 
     async close(): Promise<void> {

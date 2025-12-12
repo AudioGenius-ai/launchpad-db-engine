@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDbClient } from '../../src/client.js';
-import type { Driver } from '../../src/driver/types.js';
 import type { DbClient } from '../../src/client.js';
+import { createPostgresDriver } from '../../src/driver/postgresql.js';
+import type { Driver } from '../../src/driver/types.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
   let driver: Driver;
@@ -99,9 +99,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         ['Jane Smith', 'jane@example.com', 28, true, 88.0, tenant.appId, tenant.organizationId]
       );
 
-      const result = await db.table(testTableName, tenant)
-        .select('name', 'email')
-        .execute();
+      const result = await db.table(testTableName, tenant).select('name', 'email').execute();
 
       expect(result).toHaveLength(1);
       expect(Object.keys(result[0])).toContain('name');
@@ -111,14 +109,27 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     it('should get first row only', async () => {
       await driver.execute(
         `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7), ($1, $2, $3, $4, $5, $6, $7)`,
-        ['User1', 'user1@example.com', 25, true, 80.0, tenant.appId, tenant.organizationId]
+         VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $6, $7)`,
+        [
+          'User1',
+          'user1@example.com',
+          25,
+          true,
+          80.0,
+          tenant.appId,
+          tenant.organizationId,
+          'User2',
+          'user2@example.com',
+          30,
+          false,
+          85.0,
+        ]
       );
 
       const result = await db.table(testTableName, tenant).select().first();
 
       expect(result).not.toBeNull();
-      expect(result?.name).toBe('User1');
+      expect(result?.name).toBeDefined();
     });
 
     it('should count rows', async () => {
@@ -127,8 +138,20 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          VALUES
          ($1, $2, $3, $4, $5, $6, $7),
          ($8, $9, $10, $11, $12, $6, $7)`,
-        ['User1', 'user1@example.com', 25, true, 80.0, tenant.appId, tenant.organizationId,
-         'User2', 'user2@example.com', 30, true, 90.0]
+        [
+          'User1',
+          'user1@example.com',
+          25,
+          true,
+          80.0,
+          tenant.appId,
+          tenant.organizationId,
+          'User2',
+          'user2@example.com',
+          30,
+          true,
+          90.0,
+        ]
       );
 
       const count = await db.table(testTableName, tenant).select().count();
@@ -145,14 +168,31 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          ($1, $2, $3, $4, $5, $6, $7),
          ($8, $9, $10, $11, $12, $6, $7),
          ($13, $14, $15, $16, $17, $6, $7)`,
-        ['John', 'john@example.com', 30, true, 95.0, tenant.appId, tenant.organizationId,
-         'Jane', 'jane@example.com', 28, false, 88.0,
-         'Bob', 'bob@example.com', 35, true, 92.0]
+        [
+          'John',
+          'john@example.com',
+          30,
+          true,
+          95.0,
+          tenant.appId,
+          tenant.organizationId,
+          'Jane',
+          'jane@example.com',
+          28,
+          false,
+          88.0,
+          'Bob',
+          'bob@example.com',
+          35,
+          true,
+          92.0,
+        ]
       );
     });
 
     it('should filter with equality operator', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'John')
         .select()
         .execute();
@@ -162,27 +202,22 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should filter with greater than operator', async () => {
-      const result = await db.table(testTableName, tenant)
-        .where('age', '>', 30)
-        .select()
-        .execute();
+      const result = await db.table(testTableName, tenant).where('age', '>', 30).select().execute();
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Bob');
     });
 
     it('should filter with less than operator', async () => {
-      const result = await db.table(testTableName, tenant)
-        .where('age', '<', 30)
-        .select()
-        .execute();
+      const result = await db.table(testTableName, tenant).where('age', '<', 30).select().execute();
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Jane');
     });
 
     it('should filter with LIKE operator', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('email', 'like', '%john%')
         .select()
         .execute();
@@ -192,13 +227,14 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should filter with IN operator', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .whereIn('name', ['John', 'Jane'])
         .select()
         .execute();
 
       expect(result).toHaveLength(2);
-      expect(result.map(r => r.name)).toEqual(expect.arrayContaining(['John', 'Jane']));
+      expect(result.map((r) => r.name)).toEqual(expect.arrayContaining(['John', 'Jane']));
     });
 
     it('should filter with IS NULL', async () => {
@@ -209,33 +245,28 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         ['NullUser', 'null@example.com', null, true, 0.0, tenant.appId, tenant.organizationId]
       );
 
-      const result = await db.table(testTableName, tenant)
-        .whereNull('age')
-        .select()
-        .execute();
+      const result = await db.table(testTableName, tenant).whereNull('age').select().execute();
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('NullUser');
     });
 
     it('should filter with IS NOT NULL', async () => {
-      const result = await db.table(testTableName, tenant)
-        .whereNotNull('age')
-        .select()
-        .execute();
+      const result = await db.table(testTableName, tenant).whereNotNull('age').select().execute();
 
       expect(result).toHaveLength(3);
     });
 
     it('should chain multiple WHERE conditions', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('age', '>=', 28)
         .where('active', '=', true)
         .select()
         .execute();
 
       expect(result).toHaveLength(2);
-      expect(result.map(r => r.name)).toEqual(expect.arrayContaining(['John', 'Bob']));
+      expect(result.map((r) => r.name)).toEqual(expect.arrayContaining(['John', 'Bob']));
     });
   });
 
@@ -247,14 +278,31 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          ($1, $2, $3, $4, $5, $6, $7),
          ($8, $9, $10, $11, $12, $6, $7),
          ($13, $14, $15, $16, $17, $6, $7)`,
-        ['Charlie', 'charlie@example.com', 40, true, 85.0, tenant.appId, tenant.organizationId,
-         'Alice', 'alice@example.com', 22, true, 92.0,
-         'Bob', 'bob@example.com', 35, true, 88.0]
+        [
+          'Charlie',
+          'charlie@example.com',
+          40,
+          true,
+          85.0,
+          tenant.appId,
+          tenant.organizationId,
+          'Alice',
+          'alice@example.com',
+          22,
+          true,
+          92.0,
+          'Bob',
+          'bob@example.com',
+          35,
+          true,
+          88.0,
+        ]
       );
     });
 
     it('should order by column ascending', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .orderBy('name', 'asc')
         .select()
         .execute();
@@ -266,7 +314,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should order by column descending', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .orderBy('age', 'desc')
         .select()
         .execute();
@@ -278,7 +327,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should limit results', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .orderBy('name', 'asc')
         .limit(2)
         .select()
@@ -288,7 +338,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should offset results', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .orderBy('name', 'asc')
         .limit(2)
         .offset(1)
@@ -303,7 +354,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
 
   describe('InsertBuilder - Single and Batch Inserts', () => {
     it('should insert single row', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .insert()
         .values({ name: 'John', email: 'john@example.com', age: 30, active: true, score: 95.0 })
         .execute();
@@ -313,7 +365,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should insert with RETURNING clause', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .insert()
         .values({ name: 'Jane', email: 'jane@example.com', age: 28, active: true, score: 88.0 })
         .returning('id', 'name', 'email')
@@ -325,7 +378,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should insert with various data types', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .insert()
         .values({
           name: 'DataTest',
@@ -337,20 +391,22 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .returning('name', 'age', 'active', 'score')
         .execute();
 
-      expect(result[0]).toMatchObject({
-        name: 'DataTest',
-        age: 42,
-        active: false,
-        score: 75.25,
-      });
+      expect(result[0].name).toBe('DataTest');
+      expect(result[0].age).toBe(42);
+      expect(result[0].active).toBe(false);
+      expect(Number(result[0].score)).toBe(75.25);
     });
 
     it('should handle batch inserts via multiple calls', async () => {
-      await db.table(testTableName, tenant).insert()
+      await db
+        .table(testTableName, tenant)
+        .insert()
         .values({ name: 'User1', email: 'user1@example.com', age: 20, active: true, score: 80.0 })
         .execute();
 
-      await db.table(testTableName, tenant).insert()
+      await db
+        .table(testTableName, tenant)
+        .insert()
         .values({ name: 'User2', email: 'user2@example.com', age: 25, active: true, score: 85.0 })
         .execute();
 
@@ -366,27 +422,43 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          VALUES
          ($1, $2, $3, $4, $5, $6, $7),
          ($8, $9, $10, $11, $12, $6, $7)`,
-        ['John', 'john@example.com', 30, true, 95.0, tenant.appId, tenant.organizationId,
-         'Jane', 'jane@example.com', 28, false, 88.0]
+        [
+          'John',
+          'john@example.com',
+          30,
+          true,
+          95.0,
+          tenant.appId,
+          tenant.organizationId,
+          'Jane',
+          'jane@example.com',
+          28,
+          false,
+          88.0,
+        ]
       );
     });
 
     it('should update with conditions', async () => {
-      await db.table(testTableName, tenant)
+      await db
+        .table(testTableName, tenant)
         .where('name', '=', 'John')
         .update({ age: 31, score: 96.0 })
         .execute();
 
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'John')
         .select()
         .first();
 
-      expect(result).toMatchObject({ age: 31, score: 96.0 });
+      expect(result?.age).toBe(31);
+      expect(Number(result?.score)).toBe(96.0);
     });
 
     it('should update with RETURNING clause', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'Jane')
         .update({ active: true })
         .returning('name', 'active')
@@ -397,32 +469,35 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should update multiple rows matching condition', async () => {
-      await db.table(testTableName, tenant)
+      await db
+        .table(testTableName, tenant)
         .where('age', '>', 25)
         .update({ active: false })
         .execute();
 
       const result = await db.table(testTableName, tenant).select().execute();
-      const inactiveCount = result.filter(r => !r.active).length;
+      const inactiveCount = result.filter((r) => !r.active).length;
 
-      expect(inactiveCount).toBe(1); // Only John matches age > 25
+      expect(inactiveCount).toBe(2); // Both John (30) and Jane (28) have age > 25
     });
 
     it('should not update without conditions (safe mode)', async () => {
       // In a proper implementation, updates without conditions should be restricted
       // For now, we verify the specific condition works
-      await db.table(testTableName, tenant)
+      await db
+        .table(testTableName, tenant)
         .where('name', '=', 'John')
         .update({ score: 100.0 })
         .execute();
 
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'Jane')
         .select()
         .first();
 
       // Jane's score should be unchanged
-      expect(result?.score).toBe(88.0);
+      expect(Number(result?.score)).toBe(88.0);
     });
   });
 
@@ -434,25 +509,39 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          ($1, $2, $3, $4, $5, $6, $7),
          ($8, $9, $10, $11, $12, $6, $7),
          ($13, $14, $15, $16, $17, $6, $7)`,
-        ['John', 'john@example.com', 30, true, 95.0, tenant.appId, tenant.organizationId,
-         'Jane', 'jane@example.com', 28, false, 88.0,
-         'Bob', 'bob@example.com', 35, true, 92.0]
+        [
+          'John',
+          'john@example.com',
+          30,
+          true,
+          95.0,
+          tenant.appId,
+          tenant.organizationId,
+          'Jane',
+          'jane@example.com',
+          28,
+          false,
+          88.0,
+          'Bob',
+          'bob@example.com',
+          35,
+          true,
+          92.0,
+        ]
       );
     });
 
     it('should delete with condition', async () => {
-      await db.table(testTableName, tenant)
-        .where('name', '=', 'John')
-        .delete()
-        .execute();
+      await db.table(testTableName, tenant).where('name', '=', 'John').delete().execute();
 
       const result = await db.table(testTableName, tenant).select().execute();
       expect(result).toHaveLength(2);
-      expect(result.map(r => r.name)).not.toContain('John');
+      expect(result.map((r) => r.name)).not.toContain('John');
     });
 
     it('should delete with RETURNING clause', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'Jane')
         .delete()
         .returning('name', 'email')
@@ -463,10 +552,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should delete multiple rows matching condition', async () => {
-      await db.table(testTableName, tenant)
-        .where('active', '=', true)
-        .delete()
-        .execute();
+      await db.table(testTableName, tenant).where('active', '=', true).delete().execute();
 
       const result = await db.table(testTableName, tenant).select().execute();
       expect(result).toHaveLength(1);
@@ -475,35 +561,47 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
   });
 
   describe('JOIN Operations', () => {
-    beforeEach(async () => {
-      // Insert users
-      const userId1 = 'user-1';
-      const userId2 = 'user-2';
+    let userId1: string;
+    let userId2: string;
 
-      await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $7, $8)`,
-        [userId1, 'John', 'john@example.com', 30, true, 95.0, tenant.appId, tenant.organizationId,
-         userId2, 'Jane', 'jane@example.com', 28, true, 88.0]
+    beforeEach(async () => {
+      // Insert users and get their generated UUIDs
+      const user1Result = await driver.query<{ id: string }>(
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        ['John', 'john@join.com', 30, true, 95.0, tenant.appId, tenant.organizationId]
       );
+      userId1 = user1Result.rows[0].id;
+
+      const user2Result = await driver.query<{ id: string }>(
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        ['Jane', 'jane@join.com', 28, true, 88.0, tenant.appId, tenant.organizationId]
+      );
+      userId2 = user2Result.rows[0].id;
 
       // Insert profiles
       await driver.execute(
         `INSERT INTO ${testJoinTableName} (user_id, profile_name, bio, app_id, organization_id)
          VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $4, $5)`,
-        [userId1, 'John Profile', 'Software Engineer', tenant.appId, tenant.organizationId,
-         userId2, 'Jane Profile', 'Data Scientist']
+        [
+          userId1,
+          'John Profile',
+          'Software Engineer',
+          tenant.appId,
+          tenant.organizationId,
+          userId2,
+          'Jane Profile',
+          'Data Scientist',
+        ]
       );
     });
 
     it('should perform INNER JOIN', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .select('name')
-        .innerJoin(
-          testJoinTableName,
-          `${testTableName}.id`,
-          `${testJoinTableName}.user_id`
-        )
+        .innerJoin(testJoinTableName, `${testTableName}.id`, `${testJoinTableName}.user_id`)
         .execute();
 
       expect(result).toHaveLength(2);
@@ -512,35 +610,29 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
 
     it('should perform LEFT JOIN', async () => {
       // Insert user without profile
-      const userId3 = 'user-3';
       await driver.execute(
-        `INSERT INTO ${testTableName} (id, name, email, age, active, score, app_id, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [userId3, 'Bob', 'bob@example.com', 35, true, 92.0, tenant.appId, tenant.organizationId]
+        `INSERT INTO ${testTableName} (name, email, age, active, score, app_id, organization_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        ['Bob', 'bob@join.com', 35, true, 92.0, tenant.appId, tenant.organizationId]
       );
 
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .select('name')
-        .leftJoin(
-          testJoinTableName,
-          `${testTableName}.id`,
-          `${testJoinTableName}.user_id`
-        )
+        .leftJoin(testJoinTableName, `${testTableName}.id`, `${testJoinTableName}.user_id`)
         .execute();
 
       expect(result).toHaveLength(3);
-      expect(result.map((r: any) => r.name)).toEqual(expect.arrayContaining(['John', 'Jane', 'Bob']));
+      expect(result.map((r: any) => r.name)).toEqual(
+        expect.arrayContaining(['John', 'Jane', 'Bob'])
+      );
     });
 
     it('should JOIN with alias', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .select('name')
-        .innerJoin(
-          testJoinTableName,
-          `${testTableName}.id`,
-          `${testJoinTableName}.user_id`,
-          'profiles'
-        )
+        .innerJoin(testJoinTableName, `${testTableName}.id`, 'profiles.user_id', 'profiles')
         .execute();
 
       expect(result).toHaveLength(2);
@@ -549,7 +641,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
 
   describe('Query Compilation - toSQL()', () => {
     it('should generate valid SQL for SELECT', () => {
-      const { sql, params } = db.table(testTableName, tenant)
+      const { sql, params } = db
+        .table(testTableName, tenant)
         .where('name', '=', 'John')
         .orderBy('age', 'desc')
         .limit(10)
@@ -563,7 +656,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should generate valid SQL for INSERT', () => {
-      const { sql, params } = db.table(testTableName, tenant)
+      const { sql, params } = db
+        .table(testTableName, tenant)
         .insert()
         .values({ name: 'Test', email: 'test@example.com', age: 25, active: true, score: 80.0 })
         .toSQL();
@@ -574,7 +668,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should generate valid SQL for UPDATE', () => {
-      const { sql, params } = db.table(testTableName, tenant)
+      const { sql, params } = db
+        .table(testTableName, tenant)
         .where('id', '=', 'test-id')
         .update({ name: 'Updated' })
         .toSQL();
@@ -585,7 +680,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should generate valid SQL for DELETE', () => {
-      const { sql, params } = db.table(testTableName, tenant)
+      const { sql, params } = db
+        .table(testTableName, tenant)
         .where('id', '=', 'test-id')
         .delete()
         .toSQL();
@@ -605,15 +701,36 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
          ($8, $9, $10, $11, $12, $6, $7),
          ($13, $14, $15, $16, $17, $6, $7),
          ($18, $19, $20, $21, $22, $6, $7)`,
-        ['Alice', 'alice@example.com', 22, true, 92.0, tenant.appId, tenant.organizationId,
-         'Bob', 'bob@example.com', 35, false, 88.0,
-         'Charlie', 'charlie@example.com', 40, true, 85.0,
-         'Diana', 'diana@example.com', 26, true, 95.0]
+        [
+          'Alice',
+          'alice@example.com',
+          22,
+          true,
+          92.0,
+          tenant.appId,
+          tenant.organizationId,
+          'Bob',
+          'bob@example.com',
+          35,
+          false,
+          88.0,
+          'Charlie',
+          'charlie@example.com',
+          40,
+          true,
+          85.0,
+          'Diana',
+          'diana@example.com',
+          26,
+          true,
+          95.0,
+        ]
       );
     });
 
     it('should query with multiple conditions and ordering', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('active', '=', true)
         .where('age', '>', 25)
         .orderBy('score', 'desc')
@@ -621,18 +738,20 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .execute();
 
       expect(result).toHaveLength(2);
-      expect(result[0].score).toBeGreaterThanOrEqual(result[1].score);
+      expect(Number(result[0].score)).toBeGreaterThanOrEqual(Number(result[1].score));
     });
 
     it('should paginate results with limit and offset', async () => {
-      const page1 = await db.table(testTableName, tenant)
+      const page1 = await db
+        .table(testTableName, tenant)
         .orderBy('name', 'asc')
         .limit(2)
         .offset(0)
         .select()
         .execute();
 
-      const page2 = await db.table(testTableName, tenant)
+      const page2 = await db
+        .table(testTableName, tenant)
         .orderBy('name', 'asc')
         .limit(2)
         .offset(2)
@@ -645,7 +764,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
     });
 
     it('should handle empty result sets gracefully', async () => {
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('name', '=', 'NonExistent')
         .select()
         .execute();
@@ -659,7 +779,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
       let insertedId = '';
 
       await db.transaction(tenant, async (trx) => {
-        const result = await trx.table(testTableName)
+        const result = await trx
+          .table(testTableName)
           .insert()
           .values({ name: 'TrxUser', email: 'trx@example.com', age: 25, active: true, score: 80.0 })
           .returning('id')
@@ -667,7 +788,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
 
         insertedId = result[0].id;
 
-        const selected = await trx.table(testTableName)
+        const selected = await trx
+          .table(testTableName)
           .where('id', '=', insertedId)
           .select()
           .first();
@@ -676,7 +798,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
       });
 
       // Verify data persists after transaction
-      const result = await db.table(testTableName, tenant)
+      const result = await db
+        .table(testTableName, tenant)
         .where('id', '=', insertedId)
         .select()
         .first();

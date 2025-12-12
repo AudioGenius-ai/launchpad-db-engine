@@ -142,11 +142,21 @@ export class Repository<T> {
     return count > 0;
   }
 
+  private isDbClient(db: DbClient | TransactionContext): db is DbClient {
+    return 'tableWithoutTenant' in db;
+  }
+
   private createTableBuilder() {
-    if ('table' in this.db && this.tenantContext) {
-      return (this.db as DbClient).table(this.tableName, this.tenantContext);
+    if (this.isDbClient(this.db)) {
+      if (!this.tenantContext) {
+        throw new Error(
+          'TenantContext is required when using Repository with DbClient. ' +
+            'Either provide tenantContext or use Repository within a transaction.'
+        );
+      }
+      return this.db.table(this.tableName, this.tenantContext);
     }
-    return (this.db as TransactionContext).table(this.tableName);
+    return this.db.table(this.tableName);
   }
 
   private toColumn(propertyName: string): string {

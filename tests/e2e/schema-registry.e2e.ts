@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createPostgresDriver } from '../../src/driver/postgresql.js';
-import { SchemaRegistry } from '../../src/schema/registry.js';
 import type { Driver } from '../../src/driver/types.js';
+import { SchemaRegistry } from '../../src/schema/registry.js';
 import type { SchemaDefinition } from '../../src/types/index.js';
 
 describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
@@ -23,10 +23,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
   afterAll(async () => {
     // Clean up test tables created by registry
     try {
-      await driver.execute(`DROP TABLE IF EXISTS test_users CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_posts CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_comments CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS lp_schema_registry CASCADE;`);
+      await driver.execute('DROP TABLE IF EXISTS test_users CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_posts CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_comments CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS lp_schema_registry CASCADE;');
     } catch (e) {
       // Ignore errors during cleanup
     }
@@ -36,10 +36,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
   beforeEach(async () => {
     // Clear registry before each test
     try {
-      await driver.execute(`DELETE FROM lp_schema_registry;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_users CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_posts CASCADE;`);
-      await driver.execute(`DROP TABLE IF EXISTS test_comments CASCADE;`);
+      await driver.execute('DELETE FROM lp_schema_registry;');
+      await driver.execute('DROP TABLE IF EXISTS test_users CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_posts CASCADE;');
+      await driver.execute('DROP TABLE IF EXISTS test_comments CASCADE;');
     } catch (e) {
       // Ignore if tables don't exist yet
     }
@@ -214,7 +214,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       });
 
       expect(results.length).toBeGreaterThan(0);
-      expect(results.some(r => r.success && r.name.includes('email'))).toBe(true);
+      expect(results.some((r) => r.success && r.name.includes('email'))).toBe(true);
 
       // Verify column was added
       const columnCheck = await driver.query<{ column_name: string }>(
@@ -353,7 +353,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       });
 
       expect(results.length).toBeGreaterThan(0);
-      expect(results.some(r => r.name.includes('test_posts'))).toBe(true);
+      expect(results.some((r) => r.name.includes('test_posts'))).toBe(true);
     });
   });
 
@@ -442,7 +442,9 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
       const schemas = await registry.listSchemas(testAppId);
 
       expect(schemas.length).toBe(2);
-      expect(schemas.map(s => s.schema_name)).toEqual(expect.arrayContaining(['schema1', 'schema2']));
+      expect(schemas.map((s) => s.schema_name)).toEqual(
+        expect.arrayContaining(['schema1', 'schema2'])
+      );
     });
   });
 
@@ -506,7 +508,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
     });
 
     it('should list schemas for specific app', async () => {
-      const schema: SchemaDefinition = {
+      const schema1: SchemaDefinition = {
         name: 'test',
         version: '1.0.0',
         tables: {
@@ -521,25 +523,40 @@ describe.skipIf(!process.env.DATABASE_URL)('Schema Registry E2E Tests', () => {
         },
       };
 
+      const schema2: SchemaDefinition = {
+        name: 'test',
+        version: '1.0.0',
+        tables: {
+          test_posts: {
+            columns: {
+              id: { type: 'uuid', required: true, primary: true },
+              title: { type: 'string', required: true },
+              app_id: { type: 'string', required: true, tenant: true },
+              organization_id: { type: 'string', required: true, tenant: true },
+            },
+          },
+        },
+      };
+
       await registry.register({
         appId: testAppId,
         schemaName: 'public',
         version: '1.0.0',
-        schema,
+        schema: schema1,
       });
 
       await registry.register({
         appId: testAppId2,
         schemaName: 'public',
         version: '1.0.0',
-        schema,
+        schema: schema2,
       });
 
       const app1Schemas = await registry.listSchemas(testAppId);
       const app2Schemas = await registry.listSchemas(testAppId2);
 
-      expect(app1Schemas.every(s => s.app_id === testAppId)).toBe(true);
-      expect(app2Schemas.every(s => s.app_id === testAppId2)).toBe(true);
+      expect(app1Schemas.every((s) => s.app_id === testAppId)).toBe(true);
+      expect(app2Schemas.every((s) => s.app_id === testAppId2)).toBe(true);
     });
   });
 

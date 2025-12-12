@@ -62,38 +62,39 @@ export class SQLCompiler {
     const params: unknown[] = [];
     let paramIndex = 1;
 
-    const columns = ast.columns?.length ? ast.columns.join(', ') : '*';
+    const columns = ast.columns?.length
+      ? ast.columns.map((c) => this.quoteIdentifier(c)).join(', ')
+      : '*';
     let sql = `SELECT ${columns} FROM ${this.quoteIdentifier(ast.table)}`;
 
     if (ast.joins?.length) {
       for (const join of ast.joins) {
         const alias = join.alias ? ` AS ${this.quoteIdentifier(join.alias)}` : '';
         sql += ` ${join.type} JOIN ${this.quoteIdentifier(join.table)}${alias}`;
-        sql += ` ON ${join.on.leftColumn} = ${join.on.rightColumn}`;
+        sql += ` ON ${this.quoteIdentifier(join.on.leftColumn)} = ${this.quoteIdentifier(join.on.rightColumn)}`;
       }
     }
 
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
+      const tablePrefix = ast.joins?.length ? `${ast.table}.` : '';
       predicates.push(
-        `${this.quoteIdentifier(this.tenantColumns.appId)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.appId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
       );
       params.push(ctx.appId);
       predicates.push(
-        `${this.quoteIdentifier(this.tenantColumns.organizationId)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.organizationId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
       );
       params.push(ctx.organizationId);
     }
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -138,9 +139,7 @@ export class SQLCompiler {
     let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map((c) => this.quoteIdentifier(c)).join(', ')}) VALUES (${values.join(', ')})`;
 
     if (ast.returning?.length) {
-      if (this.dialect === 'postgresql') {
-        sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
-      }
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
@@ -173,12 +172,10 @@ export class SQLCompiler {
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -186,8 +183,8 @@ export class SQLCompiler {
       sql += ` WHERE ${predicates.join(' AND ')}`;
     }
 
-    if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+    if (ast.returning?.length) {
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
@@ -214,12 +211,10 @@ export class SQLCompiler {
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, value } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
         predicates.push(predicate);
-        if (value !== undefined) {
-          params.push(value);
-          paramIndex++;
-        }
+        params.push(...values);
+        paramIndex += paramCount;
       }
     }
 
@@ -227,39 +222,72 @@ export class SQLCompiler {
       sql += ` WHERE ${predicates.join(' AND ')}`;
     }
 
-    if (ast.returning?.length && this.dialect === 'postgresql') {
-      sql += ` RETURNING ${ast.returning.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+    if (ast.returning?.length) {
+      sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
   }
 
-  private compileWhere(w: WhereClause, paramIndex: number): { predicate: string; value?: unknown } {
+  private compileReturning(columns: string[]): string {
+    switch (this.dialect) {
+      case 'postgresql':
+      case 'sqlite':
+        return ` RETURNING ${columns.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+      case 'mysql':
+        throw new Error(
+          'MySQL does not support RETURNING clause. Use separate SELECT query after INSERT/UPDATE/DELETE.'
+        );
+      default:
+        throw new Error(`Unsupported dialect for RETURNING: ${this.dialect}`);
+    }
+  }
+
+  private compileWhere(
+    w: WhereClause,
+    paramIndex: number
+  ): { predicate: string; values: unknown[]; paramCount: number } {
     const col = this.quoteIdentifier(w.column);
 
     switch (w.op) {
       case 'IS NULL':
-        return { predicate: `${col} IS NULL` };
+        return { predicate: `${col} IS NULL`, values: [], paramCount: 0 };
       case 'IS NOT NULL':
-        return { predicate: `${col} IS NOT NULL` };
+        return { predicate: `${col} IS NOT NULL`, values: [], paramCount: 0 };
       case 'IN':
       case 'NOT IN': {
-        const values = w.value as unknown[];
-        const placeholders = values
+        const inValues = w.value as unknown[];
+        if (inValues.length === 0) {
+          return {
+            predicate: w.op === 'IN' ? '1 = 0' : '1 = 1',
+            values: [],
+            paramCount: 0,
+          };
+        }
+        const placeholders = inValues
           .map((_, i) => this.getParamPlaceholder(paramIndex + i))
           .join(', ');
-        return { predicate: `${col} ${w.op} (${placeholders})`, value: values };
+        return {
+          predicate: `${col} ${w.op} (${placeholders})`,
+          values: inValues,
+          paramCount: inValues.length,
+        };
       }
       default:
         return {
           predicate: `${col} ${w.op} ${this.getParamPlaceholder(paramIndex)}`,
-          value: w.value,
+          values: w.value !== undefined ? [w.value] : [],
+          paramCount: w.value !== undefined ? 1 : 0,
         };
     }
   }
 
   private quoteIdentifier(identifier: string): string {
     if (identifier === '*') return identifier;
+    // Don't quote SQL expressions (functions, aliases, etc.)
+    if (identifier.includes('(') || identifier.toLowerCase().includes(' as ')) {
+      return identifier;
+    }
     if (identifier.includes('.')) {
       return identifier
         .split('.')

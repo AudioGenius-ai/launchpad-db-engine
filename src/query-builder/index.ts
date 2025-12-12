@@ -274,6 +274,10 @@ export class TableBuilder<T = Record<string, unknown>> {
   private compiler: SQLCompiler;
   private tableName: string;
   private ctx?: TenantContext;
+  private whereConditions: Array<{ column: string; op: Operator; value: unknown }> = [];
+  private orderByClause?: { column: string; direction: 'asc' | 'desc' };
+  private limitValue?: number;
+  private offsetValue?: number;
 
   constructor(
     driver: Driver | TransactionClient,
@@ -287,10 +291,57 @@ export class TableBuilder<T = Record<string, unknown>> {
     this.ctx = ctx;
   }
 
+  where(column: keyof T, op: Operator, value: unknown): this {
+    this.whereConditions.push({ column: column as string, op, value });
+    return this;
+  }
+
+  whereNull(column: keyof T): this {
+    this.whereConditions.push({ column: column as string, op: 'IS NULL', value: null });
+    return this;
+  }
+
+  whereNotNull(column: keyof T): this {
+    this.whereConditions.push({ column: column as string, op: 'IS NOT NULL', value: null });
+    return this;
+  }
+
+  whereIn(column: keyof T, values: unknown[]): this {
+    this.whereConditions.push({ column: column as string, op: 'IN', value: values });
+    return this;
+  }
+
+  orderBy(column: keyof T, direction: 'asc' | 'desc' = 'asc'): this {
+    this.orderByClause = { column: column as string, direction };
+    return this;
+  }
+
+  limit(n: number): this {
+    this.limitValue = n;
+    return this;
+  }
+
+  offset(n: number): this {
+    this.offsetValue = n;
+    return this;
+  }
+
   select<K extends keyof T>(...columns: K[]): SelectBuilder<T> {
     const builder = new SelectBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
     if (columns.length) {
       builder.select(...columns);
+    }
+    for (const w of this.whereConditions) {
+      builder.where(w.column as keyof T, w.op, w.value);
+    }
+    if (this.orderByClause) {
+      builder.orderBy(this.orderByClause.column as keyof T, this.orderByClause.direction);
+    }
+    if (this.limitValue !== undefined) {
+      builder.limit(this.limitValue);
+    }
+    if (this.offsetValue !== undefined) {
+      builder.offset(this.offsetValue);
     }
     return builder;
   }
@@ -299,12 +350,25 @@ export class TableBuilder<T = Record<string, unknown>> {
     return new InsertBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
   }
 
-  update(): UpdateBuilder<T> {
-    return new UpdateBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+  update(
+    data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>
+  ): UpdateBuilder<T> {
+    const builder = new UpdateBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    if (data) {
+      builder.set(data);
+    }
+    for (const w of this.whereConditions) {
+      builder.where(w.column as keyof T, w.op, w.value);
+    }
+    return builder;
   }
 
   delete(): DeleteBuilder<T> {
-    return new DeleteBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    const builder = new DeleteBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    for (const w of this.whereConditions) {
+      builder.where(w.column as keyof T, w.op, w.value);
+    }
+    return builder;
   }
 
   async findById(id: string | number): Promise<T | null> {
