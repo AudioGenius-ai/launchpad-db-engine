@@ -38,7 +38,11 @@ export type { TypeGeneratorOptions } from './types/generator.js';
 export { DbClient, TransactionContext, createDbClient } from './client.js';
 export type { DbClientOptions } from './client.js';
 
-export { TenantContextError, validateTenantContext, validateTenantContextOrWarn } from './utils/tenant-validation.js';
+export {
+  TenantContextError,
+  validateTenantContext,
+  validateTenantContextOrWarn,
+} from './utils/tenant-validation.js';
 
 export async function createDb(options: {
   connectionString: string;
