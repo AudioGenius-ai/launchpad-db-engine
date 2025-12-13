@@ -267,12 +267,25 @@ export class MigrationRunner {
     return { valid: issues.length === 0, issues };
   }
 
+  private sanitizeTemplateKey(templateKey: string): string {
+    if (!/^[a-zA-Z0-9_-]+$/.test(templateKey)) {
+      throw new Error(
+        `Invalid templateKey: "${templateKey}". Only alphanumeric characters, hyphens, and underscores are allowed.`
+      );
+    }
+    return templateKey;
+  }
+
   private async loadMigrationFiles(options: MigrationRunOptions = {}): Promise<MigrationFile[]> {
     const scope = options.scope ?? 'core';
-    const dirPath =
-      scope === 'template' && options.templateKey
-        ? join(this.migrationsPath, 'templates', options.templateKey)
-        : join(this.migrationsPath, 'core');
+    let dirPath: string;
+
+    if (scope === 'template' && options.templateKey) {
+      const sanitizedKey = this.sanitizeTemplateKey(options.templateKey);
+      dirPath = join(this.migrationsPath, 'templates', sanitizedKey);
+    } else {
+      dirPath = join(this.migrationsPath, 'core');
+    }
 
     try {
       const files = await readdir(dirPath);

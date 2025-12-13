@@ -38,10 +38,13 @@ export type { TypeGeneratorOptions } from './types/generator.js';
 export { DbClient, TransactionContext, createDbClient } from './client.js';
 export type { DbClientOptions } from './client.js';
 
+export { TenantContextError, validateTenantContext, validateTenantContextOrWarn } from './utils/tenant-validation.js';
+
 export async function createDb(options: {
   connectionString: string;
   migrationsPath?: string;
   tenantColumns?: { appId: string; organizationId: string };
+  strictTenantMode?: boolean;
 }) {
   const { createDriver } = await import('./driver/index.js');
   const { createDbClient } = await import('./client.js');
@@ -50,5 +53,6 @@ export async function createDb(options: {
   return createDbClient(driver, {
     migrationsPath: options.migrationsPath,
     tenantColumns: options.tenantColumns,
+    strictTenantMode: options.strictTenantMode,
   });
 }

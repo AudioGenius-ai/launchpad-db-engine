@@ -465,4 +465,58 @@ DROP TABLE users;`;
       expect(checksum1).toBe(checksum2);
     });
   });
+
+  describe('security - templateKey sanitization', () => {
+    it('should reject templateKey with path traversal attempt using ..', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('../../etc/passwd');
+      }).toThrow('Invalid templateKey: "../../etc/passwd". Only alphanumeric characters, hyphens, and underscores are allowed.');
+    });
+
+    it('should reject templateKey with forward slash', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('admin/config');
+      }).toThrow('Invalid templateKey');
+    });
+
+    it('should reject templateKey with backslash', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('admin\\config');
+      }).toThrow('Invalid templateKey');
+    });
+
+    it('should reject templateKey with null byte', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('admin\x00file');
+      }).toThrow('Invalid templateKey');
+    });
+
+    it('should accept valid templateKey with alphanumerics', () => {
+      expect((runner as any).sanitizeTemplateKey('crm123')).toBe('crm123');
+    });
+
+    it('should accept valid templateKey with hyphens', () => {
+      expect((runner as any).sanitizeTemplateKey('saas-template')).toBe('saas-template');
+    });
+
+    it('should accept valid templateKey with underscores', () => {
+      expect((runner as any).sanitizeTemplateKey('admin_ui')).toBe('admin_ui');
+    });
+
+    it('should accept valid templateKey with mixed valid characters', () => {
+      expect((runner as any).sanitizeTemplateKey('my-template_v2')).toBe('my-template_v2');
+    });
+
+    it('should reject templateKey with special characters', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('admin@template');
+      }).toThrow('Invalid templateKey');
+    });
+
+    it('should reject templateKey with spaces', () => {
+      expect(() => {
+        (runner as any).sanitizeTemplateKey('admin template');
+      }).toThrow('Invalid templateKey');
+    });
+  });
 });

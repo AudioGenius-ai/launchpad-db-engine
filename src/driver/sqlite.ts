@@ -53,13 +53,19 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
         },
       };
 
-      db.exec('BEGIN');
+      let result: T;
+      let committed = false;
+
+      db.prepare('BEGIN IMMEDIATE').run();
       try {
-        const result = await fn(client);
-        db.exec('COMMIT');
+        result = await fn(client);
+        db.prepare('COMMIT').run();
+        committed = true;
         return result;
       } catch (error) {
-        db.exec('ROLLBACK');
+        if (!committed) {
+          db.prepare('ROLLBACK').run();
+        }
         throw error;
       }
     },
