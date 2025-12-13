@@ -59,6 +59,10 @@ export class SQLCompiler {
   }
 
   private compileSelect(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
+    if (this.injectTenant && !ctx) {
+      throw new Error('Tenant context is required when tenant injection is enabled');
+    }
+
     const params: unknown[] = [];
     let paramIndex = 1;
 
@@ -103,7 +107,13 @@ export class SQLCompiler {
     }
 
     if (ast.orderBy) {
-      sql += ` ORDER BY ${this.quoteIdentifier(ast.orderBy.column)} ${ast.orderBy.direction.toUpperCase()}`;
+      const direction = ast.orderBy.direction.toUpperCase();
+      if (direction !== 'ASC' && direction !== 'DESC') {
+        throw new Error(
+          `Invalid ORDER BY direction: ${ast.orderBy.direction}. Must be 'ASC' or 'DESC'.`
+        );
+      }
+      sql += ` ORDER BY ${this.quoteIdentifier(ast.orderBy.column)} ${direction}`;
     }
 
     if (ast.limit !== undefined) {
@@ -118,6 +128,10 @@ export class SQLCompiler {
   }
 
   private compileInsert(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
+    if (this.injectTenant && !ctx) {
+      throw new Error('Tenant context is required when tenant injection is enabled');
+    }
+
     const params: unknown[] = [];
     let paramIndex = 1;
 
@@ -146,6 +160,10 @@ export class SQLCompiler {
   }
 
   private compileUpdate(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
+    if (this.injectTenant && !ctx) {
+      throw new Error('Tenant context is required when tenant injection is enabled');
+    }
+
     const params: unknown[] = [];
     let paramIndex = 1;
 
@@ -191,6 +209,10 @@ export class SQLCompiler {
   }
 
   private compileDelete(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
+    if (this.injectTenant && !ctx) {
+      throw new Error('Tenant context is required when tenant injection is enabled');
+    }
+
     const params: unknown[] = [];
     let paramIndex = 1;
 

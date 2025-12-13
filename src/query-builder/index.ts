@@ -1,28 +1,40 @@
 import type { SQLCompiler } from '../compiler/index.js';
 import type { Driver, TransactionClient } from '../driver/types.js';
 import type { Operator, QueryAST, TenantContext } from '../types/index.js';
+import { validateTenantContextOrWarn } from '../utils/tenant-validation.js';
 
 export class SelectBuilder<T = Record<string, unknown>> {
   private ast: QueryAST;
   private driver: Driver | TransactionClient;
   private compiler: SQLCompiler;
   private ctx?: TenantContext;
+  private tenantValidated = false;
+  private shouldValidateTenant: boolean;
 
   constructor(
     driver: Driver | TransactionClient,
     compiler: SQLCompiler,
     table: string,
-    ctx?: TenantContext
+    ctx?: TenantContext,
+    shouldValidateTenant = true
   ) {
     this.driver = driver;
     this.compiler = compiler;
     this.ctx = ctx;
+    this.shouldValidateTenant = shouldValidateTenant;
     this.ast = {
       type: 'select',
       table,
       columns: ['*'],
       where: [],
     };
+  }
+
+  private validateTenantOnce(): void {
+    if (!this.tenantValidated && this.shouldValidateTenant) {
+      validateTenantContextOrWarn(this.ctx, this.ast.table);
+      this.tenantValidated = true;
+    }
   }
 
   select<K extends keyof T>(...columns: K[]): this {
@@ -95,18 +107,21 @@ export class SelectBuilder<T = Record<string, unknown>> {
   }
 
   async execute(): Promise<T[]> {
+    this.validateTenantOnce();
     const { sql, params } = this.compiler.compile(this.ast, this.ctx);
     const result = await this.driver.query<T>(sql, params);
     return result.rows;
   }
 
   async first(): Promise<T | null> {
+    this.validateTenantOnce();
     this.limit(1);
     const rows = await this.execute();
     return rows[0] ?? null;
   }
 
   async count(): Promise<number> {
+    this.validateTenantOnce();
     const originalColumns = this.ast.columns;
     this.ast.columns = ['COUNT(*) as count'];
     const { sql, params } = this.compiler.compile(this.ast, this.ctx);
@@ -125,21 +140,32 @@ export class InsertBuilder<T = Record<string, unknown>> {
   private driver: Driver | TransactionClient;
   private compiler: SQLCompiler;
   private ctx?: TenantContext;
+  private tenantValidated = false;
+  private shouldValidateTenant: boolean;
 
   constructor(
     driver: Driver | TransactionClient,
     compiler: SQLCompiler,
     table: string,
-    ctx?: TenantContext
+    ctx?: TenantContext,
+    shouldValidateTenant = true
   ) {
     this.driver = driver;
     this.compiler = compiler;
     this.ctx = ctx;
+    this.shouldValidateTenant = shouldValidateTenant;
     this.ast = {
       type: 'insert',
       table,
       data: {},
     };
+  }
+
+  private validateTenantOnce(): void {
+    if (!this.tenantValidated && this.shouldValidateTenant) {
+      validateTenantContextOrWarn(this.ctx, this.ast.table);
+      this.tenantValidated = true;
+    }
   }
 
   values(data: Partial<Omit<T, 'app_id' | 'organization_id'>>): this {
@@ -153,6 +179,7 @@ export class InsertBuilder<T = Record<string, unknown>> {
   }
 
   async execute(): Promise<T[]> {
+    this.validateTenantOnce();
     const { sql, params } = this.compiler.compile(this.ast, this.ctx);
     if (this.ast.returning?.length) {
       const result = await this.driver.query<T>(sql, params);
@@ -172,22 +199,33 @@ export class UpdateBuilder<T = Record<string, unknown>> {
   private driver: Driver | TransactionClient;
   private compiler: SQLCompiler;
   private ctx?: TenantContext;
+  private tenantValidated = false;
+  private shouldValidateTenant: boolean;
 
   constructor(
     driver: Driver | TransactionClient,
     compiler: SQLCompiler,
     table: string,
-    ctx?: TenantContext
+    ctx?: TenantContext,
+    shouldValidateTenant = true
   ) {
     this.driver = driver;
     this.compiler = compiler;
     this.ctx = ctx;
+    this.shouldValidateTenant = shouldValidateTenant;
     this.ast = {
       type: 'update',
       table,
       data: {},
       where: [],
     };
+  }
+
+  private validateTenantOnce(): void {
+    if (!this.tenantValidated && this.shouldValidateTenant) {
+      validateTenantContextOrWarn(this.ctx, this.ast.table);
+      this.tenantValidated = true;
+    }
   }
 
   set(data: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>): this {
@@ -207,6 +245,7 @@ export class UpdateBuilder<T = Record<string, unknown>> {
   }
 
   async execute(): Promise<T[]> {
+    this.validateTenantOnce();
     const { sql, params } = this.compiler.compile(this.ast, this.ctx);
     if (this.ast.returning?.length) {
       const result = await this.driver.query<T>(sql, params);
@@ -226,21 +265,32 @@ export class DeleteBuilder<T = Record<string, unknown>> {
   private driver: Driver | TransactionClient;
   private compiler: SQLCompiler;
   private ctx?: TenantContext;
+  private tenantValidated = false;
+  private shouldValidateTenant: boolean;
 
   constructor(
     driver: Driver | TransactionClient,
     compiler: SQLCompiler,
     table: string,
-    ctx?: TenantContext
+    ctx?: TenantContext,
+    shouldValidateTenant = true
   ) {
     this.driver = driver;
     this.compiler = compiler;
     this.ctx = ctx;
+    this.shouldValidateTenant = shouldValidateTenant;
     this.ast = {
       type: 'delete',
       table,
       where: [],
     };
+  }
+
+  private validateTenantOnce(): void {
+    if (!this.tenantValidated && this.shouldValidateTenant) {
+      validateTenantContextOrWarn(this.ctx, this.ast.table);
+      this.tenantValidated = true;
+    }
   }
 
   where(column: keyof T, op: Operator, value: unknown): this {
@@ -255,6 +305,7 @@ export class DeleteBuilder<T = Record<string, unknown>> {
   }
 
   async execute(): Promise<T[]> {
+    this.validateTenantOnce();
     const { sql, params } = this.compiler.compile(this.ast, this.ctx);
     if (this.ast.returning?.length) {
       const result = await this.driver.query<T>(sql, params);
@@ -274,6 +325,7 @@ export class TableBuilder<T = Record<string, unknown>> {
   private compiler: SQLCompiler;
   private tableName: string;
   private ctx?: TenantContext;
+  private shouldValidateTenant: boolean;
   private whereConditions: Array<{ column: string; op: Operator; value: unknown }> = [];
   private orderByClause?: { column: string; direction: 'asc' | 'desc' };
   private limitValue?: number;
@@ -283,12 +335,14 @@ export class TableBuilder<T = Record<string, unknown>> {
     driver: Driver | TransactionClient,
     compiler: SQLCompiler,
     table: string,
-    ctx?: TenantContext
+    ctx?: TenantContext,
+    shouldValidateTenant = true
   ) {
     this.driver = driver;
     this.compiler = compiler;
     this.tableName = table;
     this.ctx = ctx;
+    this.shouldValidateTenant = shouldValidateTenant;
   }
 
   where(column: keyof T, op: Operator, value: unknown): this {
@@ -327,7 +381,13 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   select<K extends keyof T>(...columns: K[]): SelectBuilder<T> {
-    const builder = new SelectBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    const builder = new SelectBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     if (columns.length) {
       builder.select(...columns);
     }
@@ -347,13 +407,25 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   insert(): InsertBuilder<T> {
-    return new InsertBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    return new InsertBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
   }
 
   update(
     data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>
   ): UpdateBuilder<T> {
-    const builder = new UpdateBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    const builder = new UpdateBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     if (data) {
       builder.set(data);
     }
@@ -364,7 +436,13 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   delete(): DeleteBuilder<T> {
-    const builder = new DeleteBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx);
+    const builder = new DeleteBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     for (const w of this.whereConditions) {
       builder.where(w.column as keyof T, w.op, w.value);
     }

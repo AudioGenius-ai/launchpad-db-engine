@@ -75,6 +75,20 @@ describe('SQLCompiler', () => {
         expect(sql).toContain('ORDER BY "created_at" DESC');
       });
 
+      it('should reject invalid ORDER BY direction', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [],
+          orderBy: { column: 'created_at', direction: 'INVALID' as 'asc' },
+        };
+
+        expect(() => compiler.compile(ast, mockCtx)).toThrow(
+          "Invalid ORDER BY direction: INVALID. Must be 'ASC' or 'DESC'."
+        );
+      });
+
       it('should compile SELECT with LIMIT', () => {
         const ast: QueryAST = {
           type: 'select',
@@ -474,7 +488,7 @@ describe('SQLCompiler', () => {
       expect(params).toEqual([]);
     });
 
-    it('should skip tenant injection when no context provided', () => {
+    it('should throw error when tenant context is missing and injection is enabled', () => {
       const compiler = createCompiler({ dialect: 'postgresql' });
 
       const ast: QueryAST = {
@@ -484,10 +498,9 @@ describe('SQLCompiler', () => {
         where: [],
       };
 
-      const { sql, params } = compiler.compile(ast);
-
-      expect(sql).toBe('SELECT * FROM "users"');
-      expect(params).toEqual([]);
+      expect(() => compiler.compile(ast)).toThrow(
+        'Tenant context is required when tenant injection is enabled'
+      );
     });
 
     it('should use custom tenant column names', () => {
@@ -517,8 +530,9 @@ describe('SQLCompiler', () => {
     const compiler = createCompiler({ dialect: 'postgresql' });
 
     it('should throw on unsupported query type', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Testing invalid query type
       const ast = {
-        type: 'unsupported' as any,
+        type: 'unsupported' as unknown,
         table: 'users',
       } as QueryAST;
 
@@ -530,6 +544,148 @@ describe('SQLCompiler', () => {
     it('should create a compiler instance', () => {
       const compiler = createCompiler({ dialect: 'postgresql' });
       expect(compiler).toBeInstanceOf(SQLCompiler);
+    });
+  });
+
+  describe('Security - SQL Injection Protection', () => {
+    const compiler = createCompiler({ dialect: 'postgresql' });
+
+    it('should quote column names to prevent injection in SELECT', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['id', 'name; DROP TABLE users--'],
+        where: [],
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('"id"');
+      expect(sql).toContain('"name; DROP TABLE users--"');
+      expect(sql).toMatch(/SELECT "id", "name; DROP TABLE users--"/);
+    });
+
+    it('should quote table names to prevent injection', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users; DROP TABLE users--',
+        columns: ['*'],
+        where: [],
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('"users; DROP TABLE users--"');
+      expect(sql).not.toMatch(/FROM users; DROP/);
+    });
+
+    it('should quote JOIN column names to prevent injection', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [],
+        joins: [
+          {
+            type: 'INNER',
+            table: 'profiles',
+            on: {
+              leftColumn: 'users.id; DROP TABLE users--',
+              rightColumn: 'profiles.user_id',
+            },
+          },
+        ],
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('"users"."id; DROP TABLE users--"');
+      expect(sql).toContain('"profiles"."user_id"');
+    });
+
+    it('should validate ORDER BY direction to prevent injection', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [],
+        orderBy: { column: 'name', direction: 'DESC; DROP TABLE users--' as 'asc' },
+      };
+
+      expect(() => compiler.compile(ast, mockCtx)).toThrow(/Invalid ORDER BY direction/);
+    });
+
+    it('should use parameterized queries for WHERE values', () => {
+      const maliciousValue = "'; DROP TABLE users--";
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [{ column: 'email', op: '=', value: maliciousValue }],
+      };
+
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('$3');
+      expect(params[2]).toBe(maliciousValue);
+      expect(sql).not.toContain('DROP TABLE');
+    });
+
+    it('should use parameterized queries for IN clause', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [
+          {
+            column: 'id',
+            op: 'IN',
+            value: ['1', "2'; DROP TABLE users--", '3'],
+          },
+        ],
+      };
+
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('IN ($3, $4, $5)');
+      expect(params[2]).toBe('1');
+      expect(params[3]).toBe("2'; DROP TABLE users--");
+      expect(params[4]).toBe('3');
+    });
+
+    it('should use parameterized queries for INSERT values', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: {
+          name: "'; DROP TABLE users--",
+          email: 'test@example.com',
+        },
+      };
+
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('$3');
+      expect(sql).toContain('$4');
+      expect(params).toContain("'; DROP TABLE users--");
+      expect(sql).not.toContain('DROP TABLE');
+    });
+
+    it('should use parameterized queries for UPDATE values', () => {
+      const ast: QueryAST = {
+        type: 'update',
+        table: 'users',
+        data: {
+          status: "active'; DROP TABLE users--",
+        },
+        where: [{ column: 'id', op: '=', value: '123' }],
+      };
+
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('$1');
+      expect(params[0]).toBe("active'; DROP TABLE users--");
+      expect(sql).not.toContain('DROP TABLE');
     });
   });
 });

@@ -4,6 +4,7 @@ import { type MigrationRunOptions, MigrationRunner } from './migrations/runner.j
 import { TableBuilder } from './query-builder/index.js';
 import { type RegisterSchemaOptions, SchemaRegistry } from './schema/registry.js';
 import type { QueryResult, TenantContext } from './types/index.js';
+import { validateTenantContext } from './utils/tenant-validation.js';
 
 export interface DbClientOptions {
   migrationsPath?: string;
@@ -11,6 +12,7 @@ export interface DbClientOptions {
     appId: string;
     organizationId: string;
   };
+  strictTenantMode?: boolean;
 }
 
 export class DbClient {
@@ -18,6 +20,7 @@ export class DbClient {
   private compiler: SQLCompiler;
   private migrationRunner?: MigrationRunner;
   private schemaRegistry: SchemaRegistry;
+  private strictTenantMode: boolean;
 
   constructor(driver: Driver, options: DbClientOptions = {}) {
     this.driver = driver;
@@ -34,10 +37,14 @@ export class DbClient {
     }
 
     this.schemaRegistry = new SchemaRegistry(driver);
+    this.strictTenantMode = options.strictTenantMode ?? true;
   }
 
   table<T = Record<string, unknown>>(name: string, ctx: TenantContext): TableBuilder<T> {
-    return new TableBuilder<T>(this.driver, this.compiler, name, ctx);
+    if (this.strictTenantMode) {
+      validateTenantContext(ctx, name);
+    }
+    return new TableBuilder<T>(this.driver, this.compiler, name, ctx, true);
   }
 
   tableWithoutTenant<T = Record<string, unknown>>(name: string): TableBuilder<T> {
@@ -45,7 +52,7 @@ export class DbClient {
       dialect: this.driver.dialect,
       injectTenant: false,
     });
-    return new TableBuilder<T>(this.driver, compilerWithoutTenant, name);
+    return new TableBuilder<T>(this.driver, compilerWithoutTenant, name, undefined, false);
   }
 
   async transaction<T>(
@@ -124,7 +131,7 @@ export class TransactionContext {
   }
 
   table<T = Record<string, unknown>>(name: string): TableBuilder<T> {
-    return new TableBuilder<T>(this.client, this.compiler, name, this.ctx);
+    return new TableBuilder<T>(this.client, this.compiler, name, this.ctx, true);
   }
 
   async raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
