@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { TenantContextError, validateTenantContext, validateTenantContextOrWarn } from '../../src/utils/tenant-validation.js';
 import type { TenantContext } from '../../src/types/index.js';
+import {
+  TenantContextError,
+  validateTenantContext,
+  validateTenantContextOrWarn,
+} from '../../src/utils/tenant-validation.js';
 
 describe('Tenant Context Validation', () => {
   describe('validateTenantContext', () => {
@@ -27,9 +31,7 @@ describe('Tenant Context Validation', () => {
       } as TenantContext;
 
       expect(() => validateTenantContext(ctx, 'users')).toThrow(TenantContextError);
-      expect(() => validateTenantContext(ctx, 'users')).toThrow(
-        'appId must be a non-empty string'
-      );
+      expect(() => validateTenantContext(ctx, 'users')).toThrow('appId must be a non-empty string');
     });
 
     it('should throw when appId is whitespace only', () => {
@@ -72,9 +74,7 @@ describe('Tenant Context Validation', () => {
     });
 
     it('should include table name in error message', () => {
-      expect(() => validateTenantContext(undefined, 'products')).toThrow(
-        'table "products"'
-      );
+      expect(() => validateTenantContext(undefined, 'products')).toThrow('table "products"');
     });
 
     it('should accept tenant context with optional userId', () => {
@@ -123,9 +123,7 @@ describe('Tenant Context Validation', () => {
       } as TenantContext;
 
       validateTenantContextOrWarn(ctx, 'users');
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid appId')
-      );
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid appId'));
 
       consoleSpy.mockRestore();
     });
@@ -139,9 +137,7 @@ describe('Tenant Context Validation', () => {
       } as TenantContext;
 
       validateTenantContextOrWarn(ctx, 'users');
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid organizationId')
-      );
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid organizationId'));
 
       consoleSpy.mockRestore();
     });

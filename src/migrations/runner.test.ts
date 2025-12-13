@@ -470,7 +470,9 @@ DROP TABLE users;`;
     it('should reject templateKey with path traversal attempt using ..', () => {
       expect(() => {
         (runner as any).sanitizeTemplateKey('../../etc/passwd');
-      }).toThrow('Invalid templateKey: "../../etc/passwd". Only alphanumeric characters, hyphens, and underscores are allowed.');
+      }).toThrow(
+        'Invalid templateKey: "../../etc/passwd". Only alphanumeric characters, hyphens, and underscores are allowed.'
+      );
     });
 
     it('should reject templateKey with forward slash', () => {

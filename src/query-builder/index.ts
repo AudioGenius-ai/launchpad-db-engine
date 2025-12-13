@@ -381,7 +381,13 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   select<K extends keyof T>(...columns: K[]): SelectBuilder<T> {
-    const builder = new SelectBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx, this.shouldValidateTenant);
+    const builder = new SelectBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     if (columns.length) {
       builder.select(...columns);
     }
@@ -401,13 +407,25 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   insert(): InsertBuilder<T> {
-    return new InsertBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx, this.shouldValidateTenant);
+    return new InsertBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
   }
 
   update(
     data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>
   ): UpdateBuilder<T> {
-    const builder = new UpdateBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx, this.shouldValidateTenant);
+    const builder = new UpdateBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     if (data) {
       builder.set(data);
     }
@@ -418,7 +436,13 @@ export class TableBuilder<T = Record<string, unknown>> {
   }
 
   delete(): DeleteBuilder<T> {
-    const builder = new DeleteBuilder<T>(this.driver, this.compiler, this.tableName, this.ctx, this.shouldValidateTenant);
+    const builder = new DeleteBuilder<T>(
+      this.driver,
+      this.compiler,
+      this.tableName,
+      this.ctx,
+      this.shouldValidateTenant
+    );
     for (const w of this.whereConditions) {
       builder.where(w.column as keyof T, w.op, w.value);
     }
