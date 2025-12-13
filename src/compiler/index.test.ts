@@ -498,7 +498,9 @@ describe('SQLCompiler', () => {
         where: [],
       };
 
-      expect(() => compiler.compile(ast)).toThrow('Tenant context is required when tenant injection is enabled');
+      expect(() => compiler.compile(ast)).toThrow(
+        'Tenant context is required when tenant injection is enabled'
+      );
     });
 
     it('should use custom tenant column names', () => {
@@ -528,8 +530,9 @@ describe('SQLCompiler', () => {
     const compiler = createCompiler({ dialect: 'postgresql' });
 
     it('should throw on unsupported query type', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Testing invalid query type
       const ast = {
-        type: 'unsupported' as any,
+        type: 'unsupported' as unknown,
         table: 'users',
       } as QueryAST;
 
@@ -625,7 +628,7 @@ describe('SQLCompiler', () => {
 
       expect(sql).toContain('$3');
       expect(params[2]).toBe(maliciousValue);
-      expect(sql).not.toContain("DROP TABLE");
+      expect(sql).not.toContain('DROP TABLE');
     });
 
     it('should use parameterized queries for IN clause', () => {

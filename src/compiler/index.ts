@@ -109,7 +109,9 @@ export class SQLCompiler {
     if (ast.orderBy) {
       const direction = ast.orderBy.direction.toUpperCase();
       if (direction !== 'ASC' && direction !== 'DESC') {
-        throw new Error(`Invalid ORDER BY direction: ${ast.orderBy.direction}. Must be 'ASC' or 'DESC'.`);
+        throw new Error(
+          `Invalid ORDER BY direction: ${ast.orderBy.direction}. Must be 'ASC' or 'DESC'.`
+        );
       }
       sql += ` ORDER BY ${this.quoteIdentifier(ast.orderBy.column)} ${direction}`;
     }
