@@ -16,6 +16,11 @@ export interface CompilerOptions {
   };
 }
 
+interface CompilationState {
+  params: unknown[];
+  paramIndex: number;
+}
+
 const DEFAULT_TENANT_COLUMNS = {
   appId: 'app_id',
   organizationId: 'organization_id',
@@ -64,83 +69,117 @@ export class SQLCompiler {
       throw new Error('Tenant context is required when tenant injection is enabled');
     }
 
-    const params: unknown[] = [];
-    let paramIndex = 1;
+    const state: CompilationState = { params: [], paramIndex: 1 };
 
+    let sql = this.compileSelectFrom(ast);
+    sql += this.compileSelectJoins(ast);
+    sql += this.compileSelectWhere(ast, ctx, state);
+    sql += this.compileSelectGroupBy(ast);
+    sql += this.compileSelectHaving(ast, state);
+    sql += this.compileSelectOrderBy(ast);
+    sql += this.compileSelectLimitOffset(ast);
+
+    return { sql, params: state.params };
+  }
+
+  private compileSelectFrom(ast: QueryAST): string {
     const columns = ast.columns?.length
       ? ast.columns.map((c) => this.quoteIdentifier(c)).join(', ')
       : '*';
-    let sql = `SELECT ${columns} FROM ${this.quoteIdentifier(ast.table)}`;
+    return `SELECT ${columns} FROM ${this.quoteIdentifier(ast.table)}`;
+  }
 
-    if (ast.joins?.length) {
-      for (const join of ast.joins) {
+  private compileSelectJoins(ast: QueryAST): string {
+    if (!ast.joins?.length) return '';
+
+    return ast.joins
+      .map((join) => {
         const alias = join.alias ? ` AS ${this.quoteIdentifier(join.alias)}` : '';
-        sql += ` ${join.type} JOIN ${this.quoteIdentifier(join.table)}${alias}`;
-        sql += ` ON ${this.quoteIdentifier(join.on.leftColumn)} = ${this.quoteIdentifier(join.on.rightColumn)}`;
-      }
-    }
+        return ` ${join.type} JOIN ${this.quoteIdentifier(join.table)}${alias} ON ${this.quoteIdentifier(join.on.leftColumn)} = ${this.quoteIdentifier(join.on.rightColumn)}`;
+      })
+      .join('');
+  }
 
+  private compileSelectWhere(
+    ast: QueryAST,
+    ctx: TenantContext | undefined,
+    state: CompilationState
+  ): string {
+    const predicates = this.buildWherePredicates(ast, ctx, state);
+    if (predicates.length === 0) return '';
+    return ` WHERE ${this.joinPredicates(predicates, ast.where || [])}`;
+  }
+
+  private buildWherePredicates(
+    ast: QueryAST,
+    ctx: TenantContext | undefined,
+    state: CompilationState
+  ): string[] {
     const predicates: string[] = [];
 
     if (this.injectTenant && ctx) {
       const tablePrefix = ast.joins?.length ? `${ast.table}.` : '';
       predicates.push(
-        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.appId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.appId}`)} = ${this.getParamPlaceholder(state.paramIndex++)}`
       );
-      params.push(ctx.appId);
+      state.params.push(ctx.appId);
       predicates.push(
-        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.organizationId}`)} = ${this.getParamPlaceholder(paramIndex++)}`
+        `${this.quoteIdentifier(`${tablePrefix}${this.tenantColumns.organizationId}`)} = ${this.getParamPlaceholder(state.paramIndex++)}`
       );
-      params.push(ctx.organizationId);
+      state.params.push(ctx.organizationId);
     }
 
     if (ast.where?.length) {
       for (const w of ast.where) {
-        const { predicate, values, paramCount } = this.compileWhere(w, paramIndex);
+        const { predicate, values, paramCount } = this.compileWhere(w, state.paramIndex);
         predicates.push(predicate);
-        params.push(...values);
-        paramIndex += paramCount;
+        state.params.push(...values);
+        state.paramIndex += paramCount;
       }
     }
 
-    if (predicates.length) {
-      sql += ` WHERE ${this.joinPredicates(predicates, ast.where || [])}`;
-    }
+    return predicates;
+  }
 
-    if (ast.groupBy?.columns.length) {
-      sql += ` GROUP BY ${ast.groupBy.columns.map((c) => this.quoteIdentifier(c)).join(', ')}`;
-    }
+  private compileSelectGroupBy(ast: QueryAST): string {
+    if (!ast.groupBy?.columns.length) return '';
+    return ` GROUP BY ${ast.groupBy.columns.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+  }
 
-    if (ast.having?.length) {
-      const havingClauses: string[] = [];
-      for (const h of ast.having) {
-        const { predicate, values, paramCount } = this.compileHaving(h, paramIndex);
-        havingClauses.push(predicate);
-        params.push(...values);
-        paramIndex += paramCount;
-      }
-      sql += ` HAVING ${havingClauses.join(' AND ')}`;
-    }
+  private compileSelectHaving(ast: QueryAST, state: CompilationState): string {
+    if (!ast.having?.length) return '';
 
-    if (ast.orderBy) {
-      const direction = ast.orderBy.direction.toUpperCase();
-      if (direction !== 'ASC' && direction !== 'DESC') {
-        throw new Error(
-          `Invalid ORDER BY direction: ${ast.orderBy.direction}. Must be 'ASC' or 'DESC'.`
-        );
-      }
-      sql += ` ORDER BY ${this.quoteIdentifier(ast.orderBy.column)} ${direction}`;
+    const havingClauses: string[] = [];
+    for (const h of ast.having) {
+      const { predicate, values, paramCount } = this.compileHaving(h, state.paramIndex);
+      havingClauses.push(predicate);
+      state.params.push(...values);
+      state.paramIndex += paramCount;
     }
+    return ` HAVING ${havingClauses.join(' AND ')}`;
+  }
 
+  private compileSelectOrderBy(ast: QueryAST): string {
+    if (!ast.orderBy) return '';
+
+    const direction = ast.orderBy.direction.toUpperCase();
+    if (direction !== 'ASC' && direction !== 'DESC') {
+      throw new Error(
+        `Invalid ORDER BY direction: ${ast.orderBy.direction}. Must be 'ASC' or 'DESC'.`
+      );
+    }
+    return ` ORDER BY ${this.quoteIdentifier(ast.orderBy.column)} ${direction}`;
+  }
+
+  private compileSelectLimitOffset(ast: QueryAST): string {
+    let sql = '';
     if (ast.limit !== undefined) {
       sql += ` LIMIT ${ast.limit}`;
     }
-
     if (ast.offset !== undefined) {
       sql += ` OFFSET ${ast.offset}`;
     }
-
-    return { sql, params };
+    return sql;
   }
 
   private compileInsert(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
