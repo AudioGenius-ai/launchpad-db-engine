@@ -41,9 +41,9 @@ describe.skipIf(!process.env.MYSQL_URL)('MySQL Driver Integration', () => {
 
   describe('Basic Query Execution', () => {
     it('should execute a simple SELECT query', async () => {
-      const result = await driver.query('SELECT NOW() as current_time');
+      const result = await driver.query('SELECT NOW() as now_time');
       expect(result.rows).toHaveLength(1);
-      expect(result.rows[0]).toHaveProperty('current_time');
+      expect(result.rows[0]).toHaveProperty('now_time');
       expect(result.rowCount).toBe(1);
     });
 
