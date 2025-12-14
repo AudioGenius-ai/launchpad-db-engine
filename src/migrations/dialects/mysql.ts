@@ -6,6 +6,46 @@ import type {
 } from '../../types/index.js';
 import type { Dialect } from './types.js';
 
+function compileMysqlDefault(colDef: ColumnDefinition): string {
+  if (!colDef.default) return '';
+  const defaultVal = colDef.default === 'gen_random_uuid()' ? '(UUID())' : colDef.default;
+  return ` DEFAULT ${defaultVal}`;
+}
+
+function compileMysqlConstraints(colDef: ColumnDefinition): string {
+  let sql = '';
+  if (colDef.primaryKey) {
+    sql += ' PRIMARY KEY';
+  }
+  sql += compileMysqlDefault(colDef);
+  if (!colDef.nullable && !colDef.primaryKey) {
+    sql += ' NOT NULL';
+  }
+  if (colDef.unique && !colDef.primaryKey) {
+    sql += ' UNIQUE';
+  }
+  return sql;
+}
+
+function compileMysqlForeignKeys(
+  tableName: string,
+  columns: Record<string, ColumnDefinition>
+): string[] {
+  const fkDefs: string[] = [];
+  for (const [colName, colDef] of Object.entries(columns)) {
+    if (colDef.references) {
+      const fkName = `fk_${tableName}_${colName}`;
+      let fk = `  CONSTRAINT \`${fkName}\` FOREIGN KEY (\`${colName}\`) `;
+      fk += `REFERENCES \`${colDef.references.table}\`(\`${colDef.references.column}\`)`;
+      if (colDef.references.onDelete) {
+        fk += ` ON DELETE ${colDef.references.onDelete}`;
+      }
+      fkDefs.push(fk);
+    }
+  }
+  return fkDefs;
+}
+
 export const mysqlDialect: Dialect = {
   name: 'mysql',
   supportsTransactionalDDL: false,
@@ -30,46 +70,17 @@ export const mysqlDialect: Dialect = {
   },
 
   createTable(name: string, def: TableDefinition): string {
-    const columnDefs: string[] = [];
-
-    for (const [colName, colDef] of Object.entries(def.columns)) {
-      let sql = `  \`${colName}\` ${this.mapType(colDef.type)}`;
-
-      if (colDef.primaryKey) {
-        sql += ' PRIMARY KEY';
-      }
-
-      if (colDef.default) {
-        const defaultVal = colDef.default === 'gen_random_uuid()' ? '(UUID())' : colDef.default;
-        sql += ` DEFAULT ${defaultVal}`;
-      }
-
-      if (!colDef.nullable && !colDef.primaryKey) {
-        sql += ' NOT NULL';
-      }
-
-      if (colDef.unique && !colDef.primaryKey) {
-        sql += ' UNIQUE';
-      }
-
-      columnDefs.push(sql);
-    }
+    const columnDefs = Object.entries(def.columns).map(([colName, colDef]) => {
+      const typeSql = `  \`${colName}\` ${this.mapType(colDef.type)}`;
+      return typeSql + compileMysqlConstraints(colDef);
+    });
 
     if (def.primaryKey && def.primaryKey.length > 1) {
       columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map((c) => `\`${c}\``).join(', ')})`);
     }
 
-    for (const [colName, colDef] of Object.entries(def.columns)) {
-      if (colDef.references) {
-        const fkName = `fk_${name}_${colName}`;
-        let fk = `  CONSTRAINT \`${fkName}\` FOREIGN KEY (\`${colName}\`) `;
-        fk += `REFERENCES \`${colDef.references.table}\`(\`${colDef.references.column}\`)`;
-        if (colDef.references.onDelete) {
-          fk += ` ON DELETE ${colDef.references.onDelete}`;
-        }
-        columnDefs.push(fk);
-      }
-    }
+    const foreignKeys = compileMysqlForeignKeys(name, def.columns);
+    columnDefs.push(...foreignKeys);
 
     return `CREATE TABLE \`${name}\` (\n${columnDefs.join(',\n')}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
   },

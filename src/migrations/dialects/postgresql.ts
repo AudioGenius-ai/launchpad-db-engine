@@ -6,6 +6,35 @@ import type {
 } from '../../types/index.js';
 import type { Dialect } from './types.js';
 
+function compilePostgresConstraints(colDef: ColumnDefinition): string {
+  let sql = '';
+  if (colDef.primaryKey) {
+    sql += ' PRIMARY KEY';
+  }
+  if (colDef.default) {
+    sql += ` DEFAULT ${colDef.default}`;
+  }
+  if (!colDef.nullable && !colDef.primaryKey) {
+    sql += ' NOT NULL';
+  }
+  if (colDef.unique && !colDef.primaryKey) {
+    sql += ' UNIQUE';
+  }
+  return sql;
+}
+
+function compilePostgresReferences(colDef: ColumnDefinition): string {
+  if (!colDef.references) return '';
+  let sql = ` REFERENCES "${colDef.references.table}"("${colDef.references.column}")`;
+  if (colDef.references.onDelete) {
+    sql += ` ON DELETE ${colDef.references.onDelete}`;
+  }
+  if (colDef.references.onUpdate) {
+    sql += ` ON UPDATE ${colDef.references.onUpdate}`;
+  }
+  return sql;
+}
+
 export const postgresDialect: Dialect = {
   name: 'postgresql',
   supportsTransactionalDDL: true,
@@ -30,39 +59,12 @@ export const postgresDialect: Dialect = {
   },
 
   createTable(name: string, def: TableDefinition): string {
-    const columnDefs: string[] = [];
-
-    for (const [colName, colDef] of Object.entries(def.columns)) {
-      let sql = `  "${colName}" ${this.mapType(colDef.type)}`;
-
-      if (colDef.primaryKey) {
-        sql += ' PRIMARY KEY';
-      }
-
-      if (colDef.default) {
-        sql += ` DEFAULT ${colDef.default}`;
-      }
-
-      if (!colDef.nullable && !colDef.primaryKey) {
-        sql += ' NOT NULL';
-      }
-
-      if (colDef.unique && !colDef.primaryKey) {
-        sql += ' UNIQUE';
-      }
-
-      if (colDef.references) {
-        sql += ` REFERENCES "${colDef.references.table}"("${colDef.references.column}")`;
-        if (colDef.references.onDelete) {
-          sql += ` ON DELETE ${colDef.references.onDelete}`;
-        }
-        if (colDef.references.onUpdate) {
-          sql += ` ON UPDATE ${colDef.references.onUpdate}`;
-        }
-      }
-
-      columnDefs.push(sql);
-    }
+    const columnDefs = Object.entries(def.columns).map(([colName, colDef]) => {
+      const typeSql = `  "${colName}" ${this.mapType(colDef.type)}`;
+      const constraints = compilePostgresConstraints(colDef);
+      const references = compilePostgresReferences(colDef);
+      return typeSql + constraints + references;
+    });
 
     if (def.primaryKey && def.primaryKey.length > 1) {
       columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map((c) => `"${c}"`).join(', ')})`);
