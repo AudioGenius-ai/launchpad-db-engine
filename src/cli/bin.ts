@@ -25,6 +25,14 @@ interface ParsedArgs {
   file?: string;
 }
 
+interface Config {
+  databaseUrl: string;
+  migrationsPath: string;
+  typesOutputPath?: string;
+}
+
+type CommandHandler = (config: Config, args: ParsedArgs) => Promise<void>;
+
 function printHelp(): void {
   console.log(`
 launchpad-db - Database engine CLI
@@ -55,33 +63,91 @@ Examples:
 `);
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+function parseIntOrUndefined(value: string | undefined): number | undefined {
+  return value ? Number.parseInt(value, 10) : undefined;
+}
 
-  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-    printHelp();
-    process.exit(0);
-  }
+async function handleMigrateUp(config: Config, args: ParsedArgs): Promise<void> {
+  await runMigrations(config, {
+    direction: 'up',
+    scope: args.scope as 'core' | 'template',
+    templateKey: args['template-key'],
+    steps: parseIntOrUndefined(args.steps),
+    toVersion: parseIntOrUndefined(args['to-version']),
+    dryRun: args['dry-run'],
+  });
+}
 
-  const command = args[0];
-  const validCommands = [
-    'migrate:up',
-    'migrate:down',
-    'migrate:status',
-    'migrate:verify',
-    'migrate:create',
-    'types:generate',
-    'schema:register',
-  ];
+async function handleMigrateDown(config: Config, args: ParsedArgs): Promise<void> {
+  await runMigrations(config, {
+    direction: 'down',
+    scope: args.scope as 'core' | 'template',
+    templateKey: args['template-key'],
+    steps: args.steps ? Number.parseInt(args.steps, 10) : 1,
+    toVersion: parseIntOrUndefined(args['to-version']),
+    dryRun: args['dry-run'],
+  });
+}
 
-  if (!validCommands.includes(command)) {
-    console.error(`Unknown command: ${command}`);
-    printHelp();
+async function handleMigrateStatus(config: Config, args: ParsedArgs): Promise<void> {
+  await getMigrationStatus(config, {
+    scope: args.scope as 'core' | 'template',
+    templateKey: args['template-key'],
+  });
+}
+
+async function handleMigrateVerify(config: Config, args: ParsedArgs): Promise<void> {
+  await verifyMigrations(config, {
+    scope: args.scope as 'core' | 'template',
+    templateKey: args['template-key'],
+  });
+}
+
+async function handleMigrateCreate(config: Config, args: ParsedArgs): Promise<void> {
+  if (!args.name) {
+    console.error('Migration name required. Use --name <name>');
     process.exit(1);
   }
+  await createMigration(config, {
+    name: args.name,
+    scope: args.scope as 'core' | 'template',
+    templateKey: args['template-key'],
+  });
+}
 
+async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<void> {
+  await generateTypesFromRegistry(config, {
+    appId: args['app-id'],
+    outputPath: args.output,
+  });
+}
+
+async function handleSchemaRegister(config: Config, args: ParsedArgs): Promise<void> {
+  if (!args['app-id'] || !args.name || !args.version || !args.file) {
+    console.error('Required: --app-id, --name, --version, --file');
+    process.exit(1);
+  }
+  await registerSchema(config, {
+    appId: args['app-id'],
+    schemaName: args.name,
+    version: args.version,
+    schemaPath: args.file,
+  });
+}
+
+const commandHandlers: Record<string, CommandHandler> = {
+  'migrate:up': handleMigrateUp,
+  'migrate:down': handleMigrateDown,
+  'migrate:status': handleMigrateStatus,
+  'migrate:verify': handleMigrateVerify,
+  'migrate:create': handleMigrateCreate,
+  'types:generate': handleTypesGenerate,
+  'schema:register': handleSchemaRegister,
+};
+
+function parseCliArgs(args: string[]): ParsedArgs {
   const { values } = parseArgs({
-    args: args.slice(1),
+    args,
     options: {
       'db-url': { type: 'string' },
       migrations: { type: 'string', default: './migrations' },
@@ -98,91 +164,42 @@ async function main(): Promise<void> {
     },
     allowPositionals: true,
   });
+  return values as ParsedArgs;
+}
 
-  const v = values as ParsedArgs;
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
 
-  const databaseUrl = v['db-url'] ?? process.env.DATABASE_URL;
+  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+    printHelp();
+    process.exit(0);
+  }
+
+  const command = args[0];
+  const handler = commandHandlers[command];
+
+  if (!handler) {
+    console.error(`Unknown command: ${command}`);
+    printHelp();
+    process.exit(1);
+  }
+
+  const parsedArgs = parseCliArgs(args.slice(1));
+  const databaseUrl = parsedArgs['db-url'] ?? process.env.DATABASE_URL;
+
   if (!databaseUrl) {
     console.error('Database URL required. Set --db-url or DATABASE_URL environment variable.');
     process.exit(1);
   }
 
-  const config = {
+  const config: Config = {
     databaseUrl,
-    migrationsPath: v.migrations,
-    typesOutputPath: v.output,
+    migrationsPath: parsedArgs.migrations,
+    typesOutputPath: parsedArgs.output,
   };
 
   try {
-    switch (command) {
-      case 'migrate:up':
-        await runMigrations(config, {
-          direction: 'up',
-          scope: v.scope as 'core' | 'template',
-          templateKey: v['template-key'],
-          steps: v.steps ? Number.parseInt(v.steps, 10) : undefined,
-          toVersion: v['to-version'] ? Number.parseInt(v['to-version'], 10) : undefined,
-          dryRun: v['dry-run'],
-        });
-        break;
-
-      case 'migrate:down':
-        await runMigrations(config, {
-          direction: 'down',
-          scope: v.scope as 'core' | 'template',
-          templateKey: v['template-key'],
-          steps: v.steps ? Number.parseInt(v.steps, 10) : 1,
-          toVersion: v['to-version'] ? Number.parseInt(v['to-version'], 10) : undefined,
-          dryRun: v['dry-run'],
-        });
-        break;
-
-      case 'migrate:status':
-        await getMigrationStatus(config, {
-          scope: v.scope as 'core' | 'template',
-          templateKey: v['template-key'],
-        });
-        break;
-
-      case 'migrate:verify':
-        await verifyMigrations(config, {
-          scope: v.scope as 'core' | 'template',
-          templateKey: v['template-key'],
-        });
-        break;
-
-      case 'migrate:create':
-        if (!v.name) {
-          console.error('Migration name required. Use --name <name>');
-          process.exit(1);
-        }
-        await createMigration(config, {
-          name: v.name,
-          scope: v.scope as 'core' | 'template',
-          templateKey: v['template-key'],
-        });
-        break;
-
-      case 'types:generate':
-        await generateTypesFromRegistry(config, {
-          appId: v['app-id'],
-          outputPath: v.output,
-        });
-        break;
-
-      case 'schema:register':
-        if (!v['app-id'] || !v.name || !v.version || !v.file) {
-          console.error('Required: --app-id, --name, --version, --file');
-          process.exit(1);
-        }
-        await registerSchema(config, {
-          appId: v['app-id'],
-          schemaName: v.name,
-          version: v.version,
-          schemaPath: v.file,
-        });
-        break;
-    }
+    await handler(config, parsedArgs);
   } catch (error) {
     console.error('Error:', error instanceof Error ? error.message : error);
     process.exit(1);
