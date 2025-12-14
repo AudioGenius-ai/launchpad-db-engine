@@ -191,6 +191,50 @@ describe('SQLCompiler', () => {
         expect(params.length).toBe(2); // Only tenant params
       });
 
+      it('should compile SELECT with NOT IN clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'status', op: 'NOT IN', value: ['deleted', 'banned'] }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        expect(sql).toContain('"status" NOT IN ($3, $4)');
+        expect(params[2]).toEqual('deleted');
+        expect(params[3]).toEqual('banned');
+        expect(params.length).toBe(4);
+      });
+
+      it('should compile SELECT with LIKE clause', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'name', op: 'LIKE', value: '%John%' }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        expect(sql).toContain('"name" LIKE $3');
+        expect(params[2]).toEqual('%John%');
+      });
+
+      it('should compile SELECT with ILIKE clause (PostgreSQL case-insensitive)', () => {
+        const ast: QueryAST = {
+          type: 'select',
+          table: 'users',
+          columns: ['*'],
+          where: [{ column: 'email', op: 'ILIKE', value: '%@EXAMPLE.COM' }],
+        };
+
+        const { sql, params } = compiler.compile(ast, mockCtx);
+
+        expect(sql).toContain('"email" ILIKE $3');
+        expect(params[2]).toEqual('%@EXAMPLE.COM');
+      });
+
       it('should compile SELECT with JOIN', () => {
         const ast: QueryAST = {
           type: 'select',
@@ -688,172 +732,172 @@ describe('SQLCompiler', () => {
     });
   });
 
-    describe('GROUP BY and HAVING', () => {
-      const compiler = createCompiler({ dialect: 'postgresql' });
+  describe('GROUP BY and HAVING', () => {
+    const compiler = createCompiler({ dialect: 'postgresql' });
 
-      it('should compile GROUP BY clause', () => {
-        const ast: QueryAST = {
-          type: 'select',
-          table: 'orders',
-          columns: ['status', 'COUNT(*) as count'],
-          where: [],
-          groupBy: { columns: ['status'] },
-        };
+    it('should compile GROUP BY clause', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'orders',
+        columns: ['status', 'COUNT(*) as count'],
+        where: [],
+        groupBy: { columns: ['status'] },
+      };
 
-        const { sql } = compiler.compile(ast, mockCtx);
+      const { sql } = compiler.compile(ast, mockCtx);
 
-        expect(sql).toContain('GROUP BY "status"');
-      });
-
-      it('should compile multiple GROUP BY columns', () => {
-        const ast: QueryAST = {
-          type: 'select',
-          table: 'orders',
-          columns: ['status', 'category', 'COUNT(*) as count'],
-          where: [],
-          groupBy: { columns: ['status', 'category'] },
-        };
-
-        const { sql } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('GROUP BY "status", "category"');
-      });
-
-      it('should compile HAVING clause', () => {
-        const ast: QueryAST = {
-          type: 'select',
-          table: 'orders',
-          columns: ['status', 'COUNT(*) as count'],
-          where: [],
-          groupBy: { columns: ['status'] },
-          having: [{ column: 'count', op: '>', value: 5 }],
-        };
-
-        const { sql, params } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('HAVING "count" > $3');
-        expect(params[2]).toBe(5);
-      });
+      expect(sql).toContain('GROUP BY "status"');
     });
 
-    describe('OR conditions', () => {
-      const compiler = createCompiler({ dialect: 'postgresql' });
+    it('should compile multiple GROUP BY columns', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'orders',
+        columns: ['status', 'category', 'COUNT(*) as count'],
+        where: [],
+        groupBy: { columns: ['status', 'category'] },
+      };
 
-      it('should compile OR where clauses', () => {
-        const ast: QueryAST = {
-          type: 'select',
-          table: 'users',
-          columns: ['*'],
-          where: [
-            { column: 'status', op: '=', value: 'active' },
-            { column: 'role', op: '=', value: 'admin', connector: 'OR' },
-          ],
-        };
+      const { sql } = compiler.compile(ast, mockCtx);
 
-        const { sql, params } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('"status" = $3');
-        expect(sql).toContain('OR "role" = $4');
-        expect(params[2]).toBe('active');
-        expect(params[3]).toBe('admin');
-      });
-
-      it('should compile mixed AND/OR conditions', () => {
-        const ast: QueryAST = {
-          type: 'select',
-          table: 'users',
-          columns: ['*'],
-          where: [
-            { column: 'status', op: '=', value: 'active' },
-            { column: 'role', op: '=', value: 'admin', connector: 'OR' },
-            { column: 'verified', op: '=', value: true },
-          ],
-        };
-
-        const { sql } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toMatch(/"status" = \$3.*OR "role" = \$4.*AND "verified" = \$5/);
-      });
+      expect(sql).toContain('GROUP BY "status", "category"');
     });
 
-    describe('Insert Many', () => {
-      const compiler = createCompiler({ dialect: 'postgresql' });
+    it('should compile HAVING clause', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'orders',
+        columns: ['status', 'COUNT(*) as count'],
+        where: [],
+        groupBy: { columns: ['status'] },
+        having: [{ column: 'count', op: '>', value: 5 }],
+      };
 
-      it('should compile INSERT with multiple rows', () => {
-        const ast: QueryAST = {
-          type: 'insert',
-          table: 'users',
-          dataRows: [
-            { name: 'User 1', email: 'user1@example.com' },
-            { name: 'User 2', email: 'user2@example.com' },
-          ],
-        };
+      const { sql, params } = compiler.compile(ast, mockCtx);
 
-        const { sql, params } = compiler.compile(ast, mockCtx);
+      expect(sql).toContain('HAVING "count" > $3');
+      expect(params[2]).toBe(5);
+    });
+  });
 
-        expect(sql).toContain('INSERT INTO "users"');
-        expect(sql).toContain('VALUES');
-        expect(sql).toMatch(/\(\$1, \$2, \$3, \$4\), \(\$5, \$6, \$7, \$8\)/);
-        expect(params).toContain('User 1');
-        expect(params).toContain('User 2');
-      });
+  describe('OR conditions', () => {
+    const compiler = createCompiler({ dialect: 'postgresql' });
 
-      it('should throw error for empty dataRows', () => {
-        const ast: QueryAST = {
-          type: 'insert',
-          table: 'users',
-          dataRows: [],
-        };
+    it('should compile OR where clauses', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [
+          { column: 'status', op: '=', value: 'active' },
+          { column: 'role', op: '=', value: 'admin', connector: 'OR' },
+        ],
+      };
 
-        expect(() => compiler.compile(ast, mockCtx)).toThrow('Cannot insert empty array of rows');
-      });
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('"status" = $3');
+      expect(sql).toContain('OR "role" = $4');
+      expect(params[2]).toBe('active');
+      expect(params[3]).toBe('admin');
     });
 
-    describe('ON CONFLICT (Upsert)', () => {
-      const compiler = createCompiler({ dialect: 'postgresql' });
+    it('should compile mixed AND/OR conditions', () => {
+      const ast: QueryAST = {
+        type: 'select',
+        table: 'users',
+        columns: ['*'],
+        where: [
+          { column: 'status', op: '=', value: 'active' },
+          { column: 'role', op: '=', value: 'admin', connector: 'OR' },
+          { column: 'verified', op: '=', value: true },
+        ],
+      };
 
-      it('should compile ON CONFLICT DO NOTHING for PostgreSQL', () => {
-        const ast: QueryAST = {
-          type: 'insert',
-          table: 'users',
-          data: { name: 'Test', email: 'test@example.com' },
-          onConflict: { columns: ['email'], action: 'nothing' },
-        };
+      const { sql } = compiler.compile(ast, mockCtx);
 
-        const { sql } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('ON CONFLICT ("email") DO NOTHING');
-      });
-
-      it('should compile ON CONFLICT DO UPDATE for PostgreSQL', () => {
-        const ast: QueryAST = {
-          type: 'insert',
-          table: 'users',
-          data: { name: 'Test', email: 'test@example.com' },
-          onConflict: { columns: ['email'], action: 'update' },
-        };
-
-        const { sql } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('ON CONFLICT ("email") DO UPDATE SET');
-        expect(sql).toContain('EXCLUDED');
-      });
-
-      it('should compile ON CONFLICT with specific update columns', () => {
-        const ast: QueryAST = {
-          type: 'insert',
-          table: 'users',
-          data: { name: 'Test', email: 'test@example.com', status: 'active' },
-          onConflict: { columns: ['email'], action: 'update', updateColumns: ['name', 'status'] },
-        };
-
-        const { sql } = compiler.compile(ast, mockCtx);
-
-        expect(sql).toContain('ON CONFLICT ("email") DO UPDATE SET');
-        expect(sql).toContain('"name" = EXCLUDED."name"');
-        expect(sql).toContain('"status" = EXCLUDED."status"');
-      });
+      expect(sql).toMatch(/"status" = \$3.*OR "role" = \$4.*AND "verified" = \$5/);
     });
+  });
+
+  describe('Insert Many', () => {
+    const compiler = createCompiler({ dialect: 'postgresql' });
+
+    it('should compile INSERT with multiple rows', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        dataRows: [
+          { name: 'User 1', email: 'user1@example.com' },
+          { name: 'User 2', email: 'user2@example.com' },
+        ],
+      };
+
+      const { sql, params } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('INSERT INTO "users"');
+      expect(sql).toContain('VALUES');
+      expect(sql).toMatch(/\(\$1, \$2, \$3, \$4\), \(\$5, \$6, \$7, \$8\)/);
+      expect(params).toContain('User 1');
+      expect(params).toContain('User 2');
+    });
+
+    it('should throw error for empty dataRows', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        dataRows: [],
+      };
+
+      expect(() => compiler.compile(ast, mockCtx)).toThrow('Cannot insert empty array of rows');
+    });
+  });
+
+  describe('ON CONFLICT (Upsert)', () => {
+    const compiler = createCompiler({ dialect: 'postgresql' });
+
+    it('should compile ON CONFLICT DO NOTHING for PostgreSQL', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: { name: 'Test', email: 'test@example.com' },
+        onConflict: { columns: ['email'], action: 'nothing' },
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('ON CONFLICT ("email") DO NOTHING');
+    });
+
+    it('should compile ON CONFLICT DO UPDATE for PostgreSQL', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: { name: 'Test', email: 'test@example.com' },
+        onConflict: { columns: ['email'], action: 'update' },
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('ON CONFLICT ("email") DO UPDATE SET');
+      expect(sql).toContain('EXCLUDED');
+    });
+
+    it('should compile ON CONFLICT with specific update columns', () => {
+      const ast: QueryAST = {
+        type: 'insert',
+        table: 'users',
+        data: { name: 'Test', email: 'test@example.com', status: 'active' },
+        onConflict: { columns: ['email'], action: 'update', updateColumns: ['name', 'status'] },
+      };
+
+      const { sql } = compiler.compile(ast, mockCtx);
+
+      expect(sql).toContain('ON CONFLICT ("email") DO UPDATE SET');
+      expect(sql).toContain('"name" = EXCLUDED."name"');
+      expect(sql).toContain('"status" = EXCLUDED."status"');
+    });
+  });
 
   describe('MySQL dialect specifics', () => {
     const mysqlCompiler = createCompiler({ dialect: 'mysql' });
