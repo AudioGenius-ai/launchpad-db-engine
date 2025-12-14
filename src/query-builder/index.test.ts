@@ -138,6 +138,114 @@ describe('SelectBuilder', () => {
     });
   });
 
+  describe('whereNotIn()', () => {
+    it('should add NOT IN where clause with array value', () => {
+      const builder = new SelectBuilder<{ id: string; status: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.whereNotIn('status', ['deleted', 'banned']);
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.where).toEqual([
+        { column: 'status', op: 'NOT IN', value: ['deleted', 'banned'] },
+      ]);
+    });
+  });
+
+  describe('whereLike()', () => {
+    it('should add LIKE where clause with pattern', () => {
+      const builder = new SelectBuilder<{ id: string; name: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.whereLike('name', '%John%');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.where).toEqual([{ column: 'name', op: 'LIKE', value: '%John%' }]);
+    });
+  });
+
+  describe('whereILike()', () => {
+    it('should add ILIKE where clause with pattern', () => {
+      const builder = new SelectBuilder<{ id: string; email: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.whereILike('email', '%@EXAMPLE.COM');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.where).toEqual([{ column: 'email', op: 'ILIKE', value: '%@EXAMPLE.COM' }]);
+    });
+  });
+
+  describe('orWhere()', () => {
+    it('should add OR where clause', () => {
+      const builder = new SelectBuilder<{ id: string; status: string; role: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.where('status', '=', 'active').orWhere('role', '=', 'admin');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.where).toEqual([
+        { column: 'status', op: '=', value: 'active' },
+        { column: 'role', op: '=', value: 'admin', connector: 'OR' },
+      ]);
+    });
+  });
+
+  describe('groupBy()', () => {
+    it('should set groupBy in AST', () => {
+      const builder = new SelectBuilder<{ id: string; status: string; count: number }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.groupBy('status');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.groupBy).toEqual({ columns: ['status'] });
+    });
+
+    it('should support multiple groupBy columns', () => {
+      const builder = new SelectBuilder<{ id: string; status: string; role: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.groupBy('status', 'role');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.groupBy).toEqual({ columns: ['status', 'role'] });
+    });
+  });
+
+  describe('having()', () => {
+    it('should add having clause to AST', () => {
+      const builder = new SelectBuilder<{ status: string; count: number }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.groupBy('status').having('count', '>', 5);
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.having).toEqual([{ column: 'count', op: '>', value: 5 }]);
+    });
+  });
+
   describe('orderBy()', () => {
     it('should set orderBy in AST with default asc', () => {
       const builder = new SelectBuilder<{ id: string; created_at: Date }>(
@@ -330,6 +438,82 @@ describe('InsertBuilder', () => {
       builder.toSQL();
       const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArg.data).toEqual({ name: 'Test', email: 'test@example.com' });
+    });
+  });
+
+  describe('valuesMany()', () => {
+    it('should set dataRows in AST for bulk insert', () => {
+      const builder = new InsertBuilder<{ id: string; name: string; email: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.valuesMany([
+        { name: 'User 1', email: 'user1@example.com' },
+        { name: 'User 2', email: 'user2@example.com' },
+      ]);
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.dataRows).toEqual([
+        { name: 'User 1', email: 'user1@example.com' },
+        { name: 'User 2', email: 'user2@example.com' },
+      ]);
+    });
+  });
+
+  describe('onConflict()', () => {
+    it('should set onConflict with update action', () => {
+      const builder = new InsertBuilder<{ id: string; name: string; email: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.values({ name: 'Test', email: 'test@example.com' }).onConflict(['email'], 'update');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.onConflict).toEqual({
+        columns: ['email'],
+        action: 'update',
+        updateColumns: undefined,
+      });
+    });
+
+    it('should set onConflict with nothing action', () => {
+      const builder = new InsertBuilder<{ id: string; name: string; email: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder.values({ name: 'Test', email: 'test@example.com' }).onConflict(['email'], 'nothing');
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.onConflict).toEqual({
+        columns: ['email'],
+        action: 'nothing',
+        updateColumns: undefined,
+      });
+    });
+
+    it('should set onConflict with specific update columns', () => {
+      const builder = new InsertBuilder<{ id: string; name: string; email: string }>(
+        driver,
+        compiler,
+        'users',
+        mockCtx
+      );
+      builder
+        .values({ name: 'Test', email: 'test@example.com' })
+        .onConflict(['email'], 'update', ['name']);
+      builder.toSQL();
+      const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArg.onConflict).toEqual({
+        columns: ['email'],
+        action: 'update',
+        updateColumns: ['name'],
+      });
     });
   });
 

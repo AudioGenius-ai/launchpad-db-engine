@@ -69,6 +69,7 @@ export interface WhereClause {
   column: string;
   op: Operator;
   value: unknown;
+  connector?: 'AND' | 'OR';
 }
 
 export interface OrderByClause {
@@ -76,17 +77,37 @@ export interface OrderByClause {
   direction: 'asc' | 'desc';
 }
 
+export interface GroupByClause {
+  columns: string[];
+}
+
+export interface HavingClause {
+  column: string;
+  op: Operator;
+  value: unknown;
+}
+
+export interface ConflictClause {
+  columns: string[];
+  action: 'update' | 'nothing';
+  updateColumns?: string[];
+}
+
 export interface QueryAST {
   type: 'select' | 'insert' | 'update' | 'delete';
   table: string;
   columns?: string[];
   data?: Record<string, unknown>;
+  dataRows?: Record<string, unknown>[];
   where?: WhereClause[];
   orderBy?: OrderByClause;
+  groupBy?: GroupByClause;
+  having?: HavingClause[];
   limit?: number;
   offset?: number;
   returning?: string[];
   joins?: JoinClause[];
+  onConflict?: ConflictClause;
 }
 
 export interface JoinClause {
