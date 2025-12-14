@@ -1,6 +1,7 @@
 import type {
   CompiledQuery,
   DialectName,
+  HavingClause,
   QueryAST,
   TenantContext,
   WhereClause,
@@ -103,7 +104,22 @@ export class SQLCompiler {
     }
 
     if (predicates.length) {
-      sql += ` WHERE ${predicates.join(' AND ')}`;
+      sql += ` WHERE ${this.joinPredicates(predicates, ast.where || [])}`;
+    }
+
+    if (ast.groupBy?.columns.length) {
+      sql += ` GROUP BY ${ast.groupBy.columns.map((c) => this.quoteIdentifier(c)).join(', ')}`;
+    }
+
+    if (ast.having?.length) {
+      const havingClauses: string[] = [];
+      for (const h of ast.having) {
+        const { predicate, values, paramCount } = this.compileHaving(h, paramIndex);
+        havingClauses.push(predicate);
+        params.push(...values);
+        paramIndex += paramCount;
+      }
+      sql += ` HAVING ${havingClauses.join(' AND ')}`;
     }
 
     if (ast.orderBy) {
@@ -135,6 +151,10 @@ export class SQLCompiler {
     const params: unknown[] = [];
     let paramIndex = 1;
 
+    if (ast.dataRows !== undefined) {
+      return this.compileInsertMany(ast, ctx, params, paramIndex);
+    }
+
     const data = { ...ast.data };
 
     if (this.injectTenant && ctx) {
@@ -152,11 +172,99 @@ export class SQLCompiler {
 
     let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map((c) => this.quoteIdentifier(c)).join(', ')}) VALUES (${values.join(', ')})`;
 
+    if (ast.onConflict) {
+      sql += this.compileOnConflict(ast.onConflict, columns, paramIndex, params);
+    }
+
     if (ast.returning?.length) {
       sql += this.compileReturning(ast.returning);
     }
 
     return { sql, params };
+  }
+
+  private compileInsertMany(
+    ast: QueryAST,
+    ctx: TenantContext | undefined,
+    params: unknown[],
+    startParamIndex: number
+  ): CompiledQuery {
+    const rows = ast.dataRows!.map((row) => {
+      const data = { ...row };
+      if (this.injectTenant && ctx) {
+        data[this.tenantColumns.appId] = ctx.appId;
+        data[this.tenantColumns.organizationId] = ctx.organizationId;
+      }
+      return data;
+    });
+
+    if (rows.length === 0) {
+      throw new Error('Cannot insert empty array of rows');
+    }
+
+    const columns = Object.keys(rows[0]);
+    const valueGroups: string[] = [];
+    let currentParamIndex = startParamIndex;
+
+    for (const row of rows) {
+      const values: string[] = [];
+      for (const col of columns) {
+        values.push(this.getParamPlaceholder(currentParamIndex++));
+        params.push(row[col]);
+      }
+      valueGroups.push(`(${values.join(', ')})`);
+    }
+
+    let sql = `INSERT INTO ${this.quoteIdentifier(ast.table)} (${columns.map((c) => this.quoteIdentifier(c)).join(', ')}) VALUES ${valueGroups.join(', ')}`;
+
+    if (ast.onConflict) {
+      sql += this.compileOnConflict(ast.onConflict, columns, currentParamIndex, params);
+    }
+
+    if (ast.returning?.length) {
+      sql += this.compileReturning(ast.returning);
+    }
+
+    return { sql, params };
+  }
+
+  private compileOnConflict(
+    conflict: QueryAST['onConflict'],
+    columns: string[],
+    _paramIndex: number,
+    _params: unknown[]
+  ): string {
+    if (!conflict) return '';
+
+    const conflictCols = conflict.columns.map((c) => this.quoteIdentifier(c)).join(', ');
+
+    switch (this.dialect) {
+      case 'postgresql':
+      case 'sqlite': {
+        if (conflict.action === 'nothing') {
+          return ` ON CONFLICT (${conflictCols}) DO NOTHING`;
+        }
+        const updateCols =
+          conflict.updateColumns || columns.filter((c) => !conflict.columns.includes(c));
+        const setClauses = updateCols.map(
+          (c) => `${this.quoteIdentifier(c)} = EXCLUDED.${this.quoteIdentifier(c)}`
+        );
+        return ` ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses.join(', ')}`;
+      }
+      case 'mysql': {
+        if (conflict.action === 'nothing') {
+          return ' ON DUPLICATE KEY UPDATE id = id';
+        }
+        const updateCols =
+          conflict.updateColumns || columns.filter((c) => !conflict.columns.includes(c));
+        const setClauses = updateCols.map(
+          (c) => `${this.quoteIdentifier(c)} = VALUES(${this.quoteIdentifier(c)})`
+        );
+        return ` ON DUPLICATE KEY UPDATE ${setClauses.join(', ')}`;
+      }
+      default:
+        throw new Error(`Unsupported dialect for ON CONFLICT: ${this.dialect}`);
+    }
   }
 
   private compileUpdate(ast: QueryAST, ctx?: TenantContext): CompiledQuery {
@@ -302,6 +410,34 @@ export class SQLCompiler {
           paramCount: w.value !== undefined ? 1 : 0,
         };
     }
+  }
+
+  private joinPredicates(predicates: string[], whereClauses: WhereClause[]): string {
+    if (predicates.length === 0) return '';
+
+    const tenantPredicateCount = this.injectTenant ? 2 : 0;
+    const result = predicates.map((predicate, i) => {
+      if (i < tenantPredicateCount) return predicate;
+      const clause = whereClauses[i - tenantPredicateCount];
+      return clause?.connector === 'OR' ? `OR ${predicate}` : predicate;
+    });
+
+    return result.reduce((sql, part, i) => {
+      if (i === 0) return part;
+      return part.startsWith('OR ') ? `${sql} ${part}` : `${sql} AND ${part}`;
+    }, '');
+  }
+
+  private compileHaving(
+    h: HavingClause,
+    paramIndex: number
+  ): { predicate: string; values: unknown[]; paramCount: number } {
+    const col = this.quoteIdentifier(h.column);
+    return {
+      predicate: `${col} ${h.op} ${this.getParamPlaceholder(paramIndex)}`,
+      values: [h.value],
+      paramCount: 1,
+    };
   }
 
   private quoteIdentifier(identifier: string): string {

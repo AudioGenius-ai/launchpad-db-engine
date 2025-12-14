@@ -66,6 +66,41 @@ export class SelectBuilder<T = Record<string, unknown>> {
     return this;
   }
 
+  whereNotIn(column: keyof T, values: unknown[]): this {
+    this.ast.where = this.ast.where ?? [];
+    this.ast.where.push({ column: column as string, op: 'NOT IN', value: values });
+    return this;
+  }
+
+  whereLike(column: keyof T, pattern: string): this {
+    this.ast.where = this.ast.where ?? [];
+    this.ast.where.push({ column: column as string, op: 'LIKE', value: pattern });
+    return this;
+  }
+
+  whereILike(column: keyof T, pattern: string): this {
+    this.ast.where = this.ast.where ?? [];
+    this.ast.where.push({ column: column as string, op: 'ILIKE', value: pattern });
+    return this;
+  }
+
+  orWhere(column: keyof T, op: Operator, value: unknown): this {
+    this.ast.where = this.ast.where ?? [];
+    this.ast.where.push({ column: column as string, op, value, connector: 'OR' });
+    return this;
+  }
+
+  groupBy(...columns: (keyof T)[]): this {
+    this.ast.groupBy = { columns: columns as string[] };
+    return this;
+  }
+
+  having(column: keyof T, op: Operator, value: unknown): this {
+    this.ast.having = this.ast.having ?? [];
+    this.ast.having.push({ column: column as string, op, value });
+    return this;
+  }
+
   orderBy(column: keyof T, direction: 'asc' | 'desc' = 'asc'): this {
     this.ast.orderBy = { column: column as string, direction };
     return this;
@@ -170,6 +205,24 @@ export class InsertBuilder<T = Record<string, unknown>> {
 
   values(data: Partial<Omit<T, 'app_id' | 'organization_id'>>): this {
     this.ast.data = data as Record<string, unknown>;
+    return this;
+  }
+
+  valuesMany(rows: Partial<Omit<T, 'app_id' | 'organization_id'>>[]): this {
+    this.ast.dataRows = rows as Record<string, unknown>[];
+    return this;
+  }
+
+  onConflict(
+    columns: (keyof T)[],
+    action: 'update' | 'nothing',
+    updateColumns?: (keyof T)[]
+  ): this {
+    this.ast.onConflict = {
+      columns: columns as string[],
+      action,
+      updateColumns: updateColumns as string[],
+    };
     return this;
   }
 
@@ -362,6 +415,21 @@ export class TableBuilder<T = Record<string, unknown>> {
 
   whereIn(column: keyof T, values: unknown[]): this {
     this.whereConditions.push({ column: column as string, op: 'IN', value: values });
+    return this;
+  }
+
+  whereNotIn(column: keyof T, values: unknown[]): this {
+    this.whereConditions.push({ column: column as string, op: 'NOT IN', value: values });
+    return this;
+  }
+
+  whereLike(column: keyof T, pattern: string): this {
+    this.whereConditions.push({ column: column as string, op: 'LIKE', value: pattern });
+    return this;
+  }
+
+  whereILike(column: keyof T, pattern: string): this {
+    this.whereConditions.push({ column: column as string, op: 'ILIKE', value: pattern });
     return this;
   }
 
