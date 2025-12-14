@@ -19,6 +19,7 @@ export interface MigrationRunnerOptions {
 export interface MigrationRunOptions {
   scope?: 'core' | 'template';
   templateKey?: string;
+  moduleName?: string;
   steps?: number;
   toVersion?: number;
   dryRun?: boolean;
@@ -46,6 +47,7 @@ export class MigrationRunner {
           name TEXT NOT NULL,
           scope TEXT NOT NULL CHECK (scope IN ('core', 'template')),
           template_key TEXT,
+          module_name TEXT,
           checksum TEXT NOT NULL,
           up_sql TEXT[] NOT NULL,
           down_sql TEXT[],
@@ -60,6 +62,7 @@ export class MigrationRunner {
             name VARCHAR(255) NOT NULL,
             scope VARCHAR(20) NOT NULL,
             template_key VARCHAR(255),
+            module_name VARCHAR(255),
             checksum VARCHAR(64) NOT NULL,
             up_sql JSON NOT NULL,
             down_sql JSON,
@@ -73,6 +76,7 @@ export class MigrationRunner {
             name TEXT NOT NULL,
             scope TEXT NOT NULL CHECK (scope IN ('core', 'template')),
             template_key TEXT,
+            module_name TEXT,
             checksum TEXT NOT NULL,
             up_sql TEXT NOT NULL,
             down_sql TEXT,
@@ -345,26 +349,29 @@ export class MigrationRunner {
   ): Promise<MigrationRecord[]> {
     const scope = options.scope ?? 'core';
     const templateKey = options.templateKey ?? null;
+    const moduleName = options.moduleName ?? null;
 
     let sql: string;
     let params: unknown[];
 
     if (this.dialect.name === 'postgresql') {
       sql = `
-        SELECT version, name, scope, template_key, checksum, up_sql, down_sql, applied_at, executed_by
+        SELECT version, name, scope, template_key, module_name, checksum, up_sql, down_sql, applied_at, executed_by
         FROM "${this.tableName}"
         WHERE scope = $1 AND (template_key = $2 OR (template_key IS NULL AND $2 IS NULL))
+          AND (module_name = $3 OR (module_name IS NULL AND $3 IS NULL))
         ORDER BY version ASC
       `;
-      params = [scope, templateKey];
+      params = [scope, templateKey, moduleName];
     } else {
       sql = `
-        SELECT version, name, scope, template_key, checksum, up_sql, down_sql, applied_at, executed_by
+        SELECT version, name, scope, template_key, module_name, checksum, up_sql, down_sql, applied_at, executed_by
         FROM ${this.dialect.name === 'mysql' ? `\`${this.tableName}\`` : `"${this.tableName}"`}
         WHERE scope = ? AND (template_key = ? OR (template_key IS NULL AND ? IS NULL))
+          AND (module_name = ? OR (module_name IS NULL AND ? IS NULL))
         ORDER BY version ASC
       `;
-      params = [scope, templateKey, templateKey];
+      params = [scope, templateKey, templateKey, moduleName, moduleName];
     }
 
     const result = await this.driver.query<{
@@ -372,6 +379,7 @@ export class MigrationRunner {
       name: string;
       scope: 'core' | 'template';
       template_key: string | null;
+      module_name: string | null;
       checksum: string;
       up_sql: string[] | string;
       down_sql: string[] | string | null;
@@ -384,6 +392,7 @@ export class MigrationRunner {
       name: row.name,
       scope: row.scope,
       templateKey: row.template_key,
+      moduleName: row.module_name,
       checksum: row.checksum,
       upSql: typeof row.up_sql === 'string' ? JSON.parse(row.up_sql) : row.up_sql,
       downSql: row.down_sql
@@ -415,14 +424,15 @@ export class MigrationRunner {
     if (this.dialect.name === 'postgresql') {
       await client.execute(
         `
-        INSERT INTO "${this.tableName}" (version, name, scope, template_key, checksum, up_sql, down_sql)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO "${this.tableName}" (version, name, scope, template_key, module_name, checksum, up_sql, down_sql)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
         [
           migration.version,
           migration.name,
           migration.scope,
           migration.templateKey ?? null,
+          migration.moduleName ?? null,
           checksum,
           migration.up,
           migration.down.length ? migration.down : null,
@@ -431,14 +441,15 @@ export class MigrationRunner {
     } else if (this.dialect.name === 'mysql') {
       await client.execute(
         `
-        INSERT INTO \`${this.tableName}\` (version, name, scope, template_key, checksum, up_sql, down_sql)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO \`${this.tableName}\` (version, name, scope, template_key, module_name, checksum, up_sql, down_sql)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           migration.version,
           migration.name,
           migration.scope,
           migration.templateKey ?? null,
+          migration.moduleName ?? null,
           checksum,
           JSON.stringify(migration.up),
           migration.down.length ? JSON.stringify(migration.down) : null,
@@ -447,14 +458,15 @@ export class MigrationRunner {
     } else {
       await client.execute(
         `
-        INSERT INTO "${this.tableName}" (version, name, scope, template_key, checksum, up_sql, down_sql)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO "${this.tableName}" (version, name, scope, template_key, module_name, checksum, up_sql, down_sql)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           migration.version,
           migration.name,
           migration.scope,
           migration.templateKey ?? null,
+          migration.moduleName ?? null,
           checksum,
           JSON.stringify(migration.up),
           migration.down.length ? JSON.stringify(migration.down) : null,

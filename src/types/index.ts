@@ -132,6 +132,7 @@ export interface MigrationFile {
   down: string[];
   scope: 'core' | 'template';
   templateKey?: string;
+  moduleName?: string;
 }
 
 export interface MigrationRecord {
@@ -139,6 +140,7 @@ export interface MigrationRecord {
   name: string;
   scope: 'core' | 'template';
   templateKey: string | null;
+  moduleName: string | null;
   checksum: string;
   upSql: string[];
   downSql: string[];

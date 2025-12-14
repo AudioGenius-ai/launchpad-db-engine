@@ -5,8 +5,11 @@ import {
   createMigration,
   generateTypesFromRegistry,
   getMigrationStatus,
+  listModules,
+  registerModule,
   registerSchema,
   runMigrations,
+  runModuleMigrations,
   verifyMigrations,
 } from './index.js';
 
@@ -23,6 +26,11 @@ interface ParsedArgs {
   output?: string;
   version?: string;
   file?: string;
+  'display-name'?: string;
+  'migration-prefix'?: string;
+  description?: string;
+  dependencies?: string;
+  'modules-path'?: string;
 }
 
 interface Config {
@@ -45,6 +53,9 @@ Commands:
   migrate:status   Show migration status
   migrate:verify   Verify migration checksums
   migrate:create   Create a new migration file
+  migrate:modules  Run module migrations
+  module:list      List registered modules
+  module:register  Register a module
   types:generate   Generate TypeScript types from registered schemas
   schema:register  Register a schema from a file
 
@@ -53,11 +64,23 @@ Global Options:
   --migrations     Path to migrations directory (default: ./migrations)
   --help           Show this help message
 
+Module Options:
+  --modules-path   Path to modules directory (default: ./migrations/modules)
+  --name           Module name
+  --display-name   Module display name
+  --version        Module version
+  --migration-prefix  Prefix for module migrations
+  --description    Module description
+  --dependencies   Comma-separated list of module dependencies
+
 Examples:
   launchpad-db migrate:up
   launchpad-db migrate:up --scope template --template-key crm
   launchpad-db migrate:down --steps 1
   launchpad-db migrate:create --name add_users --scope core
+  launchpad-db migrate:modules --modules-path ./migrations/modules
+  launchpad-db module:list
+  launchpad-db module:register --name workflows --display-name "Workflows Engine" --version 1.0.0 --migration-prefix workflows
   launchpad-db types:generate --output ./src/types.ts
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
@@ -135,12 +158,42 @@ async function handleSchemaRegister(config: Config, args: ParsedArgs): Promise<v
   });
 }
 
+async function handleModuleList(config: Config, _args: ParsedArgs): Promise<void> {
+  await listModules(config);
+}
+
+async function handleModuleRegister(config: Config, args: ParsedArgs): Promise<void> {
+  if (!args.name || !args['display-name'] || !args.version || !args['migration-prefix']) {
+    console.error('Required: --name, --display-name, --version, --migration-prefix');
+    process.exit(1);
+  }
+  await registerModule(config, {
+    name: args.name,
+    displayName: args['display-name'],
+    version: args.version,
+    migrationPrefix: args['migration-prefix'],
+    description: args.description,
+    dependencies: args.dependencies?.split(',').map((d) => d.trim()),
+  });
+}
+
+async function handleMigrateModules(config: Config, args: ParsedArgs): Promise<void> {
+  await runModuleMigrations(config, {
+    modulesPath: args['modules-path'] ?? './migrations/modules',
+    dryRun: args['dry-run'],
+    steps: parseIntOrUndefined(args.steps),
+  });
+}
+
 const commandHandlers: Record<string, CommandHandler> = {
   'migrate:up': handleMigrateUp,
   'migrate:down': handleMigrateDown,
   'migrate:status': handleMigrateStatus,
   'migrate:verify': handleMigrateVerify,
   'migrate:create': handleMigrateCreate,
+  'migrate:modules': handleMigrateModules,
+  'module:list': handleModuleList,
+  'module:register': handleModuleRegister,
   'types:generate': handleTypesGenerate,
   'schema:register': handleSchemaRegister,
 };
@@ -161,6 +214,11 @@ function parseCliArgs(args: string[]): ParsedArgs {
       output: { type: 'string' },
       version: { type: 'string' },
       file: { type: 'string' },
+      'display-name': { type: 'string' },
+      'migration-prefix': { type: 'string' },
+      description: { type: 'string' },
+      dependencies: { type: 'string' },
+      'modules-path': { type: 'string' },
     },
     allowPositionals: true,
   });
