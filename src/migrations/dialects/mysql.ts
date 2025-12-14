@@ -27,7 +27,10 @@ function compileMysqlConstraints(colDef: ColumnDefinition): string {
   return sql;
 }
 
-function compileMysqlForeignKeys(tableName: string, columns: Record<string, ColumnDefinition>): string[] {
+function compileMysqlForeignKeys(
+  tableName: string,
+  columns: Record<string, ColumnDefinition>
+): string[] {
   const fkDefs: string[] = [];
   for (const [colName, colDef] of Object.entries(columns)) {
     if (colDef.references) {
