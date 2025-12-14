@@ -29,6 +29,19 @@ export type { MigrationRunnerOptions, MigrationRunOptions } from './migrations/i
 export { getDialect, postgresDialect, mysqlDialect, sqliteDialect } from './migrations/index.js';
 export type { Dialect } from './migrations/index.js';
 
+export {
+  ModuleRegistry,
+  createModuleRegistry,
+  MigrationCollector,
+  createMigrationCollector,
+} from './modules/index.js';
+export type {
+  ModuleRegistryOptions,
+  MigrationCollectorOptions,
+  ModuleDefinition,
+  ModuleMigrationSource,
+} from './modules/index.js';
+
 export { SchemaRegistry, createSchemaRegistry } from './schema/index.js';
 export type { SchemaRegistryOptions, RegisterSchemaOptions } from './schema/index.js';
 
