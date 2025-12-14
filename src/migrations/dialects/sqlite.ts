@@ -6,6 +6,44 @@ import type {
 } from '../../types/index.js';
 import type { Dialect } from './types.js';
 
+const SQLITE_UUID_DEFAULT =
+  "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))";
+
+function compileSqliteDefault(colDef: ColumnDefinition): string {
+  if (!colDef.default) return '';
+  let defaultVal = colDef.default;
+  if (colDef.default === 'gen_random_uuid()') {
+    defaultVal = SQLITE_UUID_DEFAULT;
+  } else if (colDef.default === 'now()' || colDef.default === 'NOW()') {
+    defaultVal = "datetime('now')";
+  }
+  return ` DEFAULT ${defaultVal}`;
+}
+
+function compileSqliteConstraints(colDef: ColumnDefinition): string {
+  let sql = '';
+  if (colDef.primaryKey) {
+    sql += ' PRIMARY KEY';
+  }
+  sql += compileSqliteDefault(colDef);
+  if (!colDef.nullable && !colDef.primaryKey) {
+    sql += ' NOT NULL';
+  }
+  if (colDef.unique && !colDef.primaryKey) {
+    sql += ' UNIQUE';
+  }
+  return sql;
+}
+
+function compileSqliteReferences(colDef: ColumnDefinition): string {
+  if (!colDef.references) return '';
+  let sql = ` REFERENCES "${colDef.references.table}"("${colDef.references.column}")`;
+  if (colDef.references.onDelete) {
+    sql += ` ON DELETE ${colDef.references.onDelete}`;
+  }
+  return sql;
+}
+
 export const sqliteDialect: Dialect = {
   name: 'sqlite',
   supportsTransactionalDDL: true,
@@ -30,42 +68,12 @@ export const sqliteDialect: Dialect = {
   },
 
   createTable(name: string, def: TableDefinition): string {
-    const columnDefs: string[] = [];
-
-    for (const [colName, colDef] of Object.entries(def.columns)) {
-      let sql = `  "${colName}" ${this.mapType(colDef.type)}`;
-
-      if (colDef.primaryKey) {
-        sql += ' PRIMARY KEY';
-      }
-
-      if (colDef.default) {
-        const defaultVal =
-          colDef.default === 'gen_random_uuid()'
-            ? "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))))"
-            : colDef.default === 'now()' || colDef.default === 'NOW()'
-              ? "datetime('now')"
-              : colDef.default;
-        sql += ` DEFAULT ${defaultVal}`;
-      }
-
-      if (!colDef.nullable && !colDef.primaryKey) {
-        sql += ' NOT NULL';
-      }
-
-      if (colDef.unique && !colDef.primaryKey) {
-        sql += ' UNIQUE';
-      }
-
-      if (colDef.references) {
-        sql += ` REFERENCES "${colDef.references.table}"("${colDef.references.column}")`;
-        if (colDef.references.onDelete) {
-          sql += ` ON DELETE ${colDef.references.onDelete}`;
-        }
-      }
-
-      columnDefs.push(sql);
-    }
+    const columnDefs = Object.entries(def.columns).map(([colName, colDef]) => {
+      const typeSql = `  "${colName}" ${this.mapType(colDef.type)}`;
+      const constraints = compileSqliteConstraints(colDef);
+      const references = compileSqliteReferences(colDef);
+      return typeSql + constraints + references;
+    });
 
     if (def.primaryKey && def.primaryKey.length > 1) {
       columnDefs.push(`  PRIMARY KEY (${def.primaryKey.map((c) => `"${c}"`).join(', ')})`);
