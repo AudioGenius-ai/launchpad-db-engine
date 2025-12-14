@@ -4,7 +4,16 @@ import type { DbClient } from '../../src/client.js';
 import { createSQLiteDriver } from '../../src/driver/sqlite.js';
 import type { Driver } from '../../src/driver/types.js';
 
-describe('SQLite Driver Integration', () => {
+let sqliteAvailable = true;
+try {
+  const { default: Database } = await import('better-sqlite3');
+  const testDb = new Database(':memory:');
+  testDb.close();
+} catch {
+  sqliteAvailable = false;
+}
+
+describe.skipIf(!sqliteAvailable)('SQLite Driver Integration', () => {
   let driver: Driver;
   const testTableName = 'test_integration_users';
 
@@ -199,7 +208,7 @@ describe('SQLite Driver Integration', () => {
   });
 });
 
-describe('DbClient SQLite Integration', () => {
+describe.skipIf(!sqliteAvailable)('DbClient SQLite Integration', () => {
   let driver: Driver;
   let client: DbClient;
   const testTableName = 'test_client_products';
