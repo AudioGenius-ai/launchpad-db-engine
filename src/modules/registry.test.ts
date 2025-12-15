@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ModuleRegistry } from './registry.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Driver } from '../driver/types.js';
+import { ModuleRegistry } from './registry.js';
 
 const createMockDriver = (): Driver => ({
   dialect: 'postgresql',
@@ -261,9 +261,7 @@ describe('ModuleRegistry', () => {
       expect(driver.execute).toHaveBeenCalledWith(
         expect.stringContaining('CREATE TABLE IF NOT EXISTS "lp_module_registry"')
       );
-      expect(driver.execute).toHaveBeenCalledWith(
-        expect.stringContaining("datetime('now')")
-      );
+      expect(driver.execute).toHaveBeenCalledWith(expect.stringContaining("datetime('now')"));
     });
 
     it('should register with SQLite syntax', async () => {
