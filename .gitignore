@@ -2,7 +2,8 @@
 node_modules/
 
 # Build output
-dist/
+# Note: dist/ is committed for GitHub dependency usage
+# dist/
 
 # IDE
 .idea/
