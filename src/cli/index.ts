@@ -331,14 +331,17 @@ export async function runModuleMigrations(
     let migrationsToRun = migrations;
 
     if (options.steps) {
-      migrationsToRun = direction === 'up'
-        ? migrations.slice(0, options.steps)
-        : migrations.slice(-options.steps).reverse();
+      migrationsToRun =
+        direction === 'up'
+          ? migrations.slice(0, options.steps)
+          : migrations.slice(-options.steps).reverse();
     }
 
     for (const migration of migrationsToRun) {
       if (options.dryRun) {
-        console.log(`[DRY RUN] Would ${direction === 'up' ? 'apply' : 'rollback'}: ${migration.version}__${migration.name} (module: ${migration.moduleName})`);
+        console.log(
+          `[DRY RUN] Would ${direction === 'up' ? 'apply' : 'rollback'}: ${migration.version}__${migration.name} (module: ${migration.moduleName})`
+        );
         continue;
       }
 
@@ -348,9 +351,13 @@ export async function runModuleMigrations(
         for (const sql of statements) {
           await driver.execute(sql);
         }
-        console.log(`✓ ${migration.version}__${migration.name} (module: ${migration.moduleName}) (${Date.now() - startTime}ms)`);
+        console.log(
+          `✓ ${migration.version}__${migration.name} (module: ${migration.moduleName}) (${Date.now() - startTime}ms)`
+        );
       } catch (error) {
-        console.error(`✗ ${migration.version}__${migration.name} (module: ${migration.moduleName}): ${error instanceof Error ? error.message : error}`);
+        console.error(
+          `✗ ${migration.version}__${migration.name} (module: ${migration.moduleName}): ${error instanceof Error ? error.message : error}`
+        );
         break;
       }
     }

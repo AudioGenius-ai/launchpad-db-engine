@@ -177,9 +177,7 @@ export class ModuleRegistry {
       description: row.description ?? undefined,
       version: row.version,
       dependencies:
-        typeof row.dependencies === 'string'
-          ? JSON.parse(row.dependencies)
-          : row.dependencies,
+        typeof row.dependencies === 'string' ? JSON.parse(row.dependencies) : row.dependencies,
       migrationPrefix: row.migration_prefix,
     };
   }
@@ -215,9 +213,7 @@ export class ModuleRegistry {
       description: row.description ?? undefined,
       version: row.version,
       dependencies:
-        typeof row.dependencies === 'string'
-          ? JSON.parse(row.dependencies)
-          : row.dependencies,
+        typeof row.dependencies === 'string' ? JSON.parse(row.dependencies) : row.dependencies,
       migrationPrefix: row.migration_prefix,
     }));
   }

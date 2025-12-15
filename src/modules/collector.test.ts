@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MigrationCollector } from './collector.js';
 import * as fs from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MigrationCollector } from './collector.js';
 
 vi.mock('node:fs/promises');
 
@@ -29,9 +29,12 @@ describe('MigrationCollector', () => {
 
     it('should discover module directories', async () => {
       vi.mocked(fs.readdir).mockResolvedValueOnce(['cms', 'workflows', 'identity'] as any);
-      vi.mocked(fs.stat).mockImplementation(async (path) => ({
-        isDirectory: () => true,
-      }) as any);
+      vi.mocked(fs.stat).mockImplementation(
+        async (path) =>
+          ({
+            isDirectory: () => true,
+          }) as any
+      );
 
       const result = await collector.discoverFromDirectory('/migrations/modules');
 
@@ -52,9 +55,12 @@ describe('MigrationCollector', () => {
 
     it('should skip non-directory entries', async () => {
       vi.mocked(fs.readdir).mockResolvedValueOnce(['workflows', 'README.md', '.gitkeep'] as any);
-      vi.mocked(fs.stat).mockImplementation(async (path) => ({
-        isDirectory: () => !path.includes('.'),
-      }) as any);
+      vi.mocked(fs.stat).mockImplementation(
+        async (path) =>
+          ({
+            isDirectory: () => !path.includes('.'),
+          }) as any
+      );
 
       const result = await collector.discoverFromDirectory('/migrations/modules');
 
@@ -92,9 +98,9 @@ describe('MigrationCollector', () => {
 
       vi.mocked(fs.readFile).mockImplementation(async (path) => {
         if (String(path).includes('cms')) {
-          return `-- up\nCREATE TABLE cms_content();\n-- down\nDROP TABLE cms_content;`;
+          return '-- up\nCREATE TABLE cms_content();\n-- down\nDROP TABLE cms_content;';
         }
-        return `-- up\nCREATE TABLE workflows();\n-- down\nDROP TABLE workflows;`;
+        return '-- up\nCREATE TABLE workflows();\n-- down\nDROP TABLE workflows;';
       });
 
       const result = await collector.collect([
@@ -115,7 +121,7 @@ describe('MigrationCollector', () => {
         return ['20240101000000__earlier.sql'] as any;
       });
 
-      vi.mocked(fs.readFile).mockResolvedValue(`-- up\nSELECT 1;\n-- down\nSELECT 2;`);
+      vi.mocked(fs.readFile).mockResolvedValue('-- up\nSELECT 1;\n-- down\nSELECT 2;');
 
       const result = await collector.collect([
         { moduleName: 'cms', migrationsPath: '/modules/cms' },
@@ -128,7 +134,7 @@ describe('MigrationCollector', () => {
 
     it('should order migrations by module name when versions are equal', async () => {
       vi.mocked(fs.readdir).mockImplementation(async () => ['20240101000000__same.sql'] as any);
-      vi.mocked(fs.readFile).mockResolvedValue(`-- up\nSELECT 1;\n-- down\nSELECT 2;`);
+      vi.mocked(fs.readFile).mockResolvedValue('-- up\nSELECT 1;\n-- down\nSELECT 2;');
 
       const result = await collector.collect([
         { moduleName: 'workflows', migrationsPath: '/modules/workflows' },
@@ -167,7 +173,7 @@ DROP TABLE test;`);
         '.gitkeep',
         'invalid_name.sql',
       ] as any);
-      vi.mocked(fs.readFile).mockResolvedValue(`-- up\nSELECT 1;`);
+      vi.mocked(fs.readFile).mockResolvedValue('-- up\nSELECT 1;');
 
       const result = await collector.collect([
         { moduleName: 'test', migrationsPath: '/modules/test' },
@@ -179,7 +185,7 @@ DROP TABLE test;`);
 
     it('should skip migrations without up section', async () => {
       vi.mocked(fs.readdir).mockResolvedValueOnce(['20240101000000__empty.sql'] as any);
-      vi.mocked(fs.readFile).mockResolvedValueOnce(`-- This file has no up section`);
+      vi.mocked(fs.readFile).mockResolvedValueOnce('-- This file has no up section');
 
       const result = await collector.collect([
         { moduleName: 'test', migrationsPath: '/modules/test' },
@@ -202,7 +208,7 @@ DROP TABLE test;`);
 
     it('should set moduleName on each migration', async () => {
       vi.mocked(fs.readdir).mockResolvedValueOnce(['20240101000000__test.sql'] as any);
-      vi.mocked(fs.readFile).mockResolvedValueOnce(`-- up\nSELECT 1;`);
+      vi.mocked(fs.readFile).mockResolvedValueOnce('-- up\nSELECT 1;');
 
       const result = await collector.collect([
         { moduleName: 'workflows', migrationsPath: '/modules/workflows' },
@@ -213,7 +219,7 @@ DROP TABLE test;`);
 
     it('should set scope to core by default', async () => {
       vi.mocked(fs.readdir).mockResolvedValueOnce(['20240101000000__test.sql'] as any);
-      vi.mocked(fs.readFile).mockResolvedValueOnce(`-- up\nSELECT 1;`);
+      vi.mocked(fs.readFile).mockResolvedValueOnce('-- up\nSELECT 1;');
 
       const result = await collector.collect([
         { moduleName: 'test', migrationsPath: '/modules/test' },
