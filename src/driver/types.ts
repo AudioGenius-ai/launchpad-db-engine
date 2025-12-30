@@ -1,10 +1,12 @@
 import type { DialectName, QueryResult } from '../types/index.js';
+import type { HealthCheckConfig, HealthCheckResult, PoolStats } from './health.js';
 
 export interface DriverConfig {
   connectionString: string;
   max?: number;
   idleTimeout?: number;
   connectTimeout?: number;
+  healthCheck?: HealthCheckConfig;
 }
 
 export interface Driver {
@@ -18,6 +20,16 @@ export interface Driver {
   transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T>;
 
   close(): Promise<void>;
+
+  healthCheck(): Promise<HealthCheckResult>;
+
+  getPoolStats(): PoolStats;
+
+  isHealthy(): boolean;
+
+  startHealthChecks(): void;
+
+  stopHealthChecks(): void;
 }
 
 export interface TransactionClient {

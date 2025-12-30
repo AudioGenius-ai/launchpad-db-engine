@@ -288,7 +288,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Integration Edge Cases', () => {
     const ctx = { appId: 'app-unicode', organizationId: 'org-unicode' };
 
     it('should store and retrieve unicode characters', async () => {
-      for (const { char, name } of UNICODE_EDGE_CASES.slice(0, 5)) {
+      // Skip NULL byte (index 0) as PostgreSQL doesn't allow it in text columns
+      for (const { char, name } of UNICODE_EDGE_CASES.slice(1, 6)) {
         const testValue = `test_${char}_value`;
         const email = `unicode-${Math.random().toString(36).slice(2)}@example.com`;
 

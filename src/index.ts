@@ -2,12 +2,27 @@ export * from './types/index.js';
 
 export * from './orm/index.js';
 
-export { createDriver, detectDialect } from './driver/index.js';
+export {
+  createDriver,
+  detectDialect,
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+  createPoolMonitor,
+  isRetryableError,
+  withRetry,
+  createTimeoutPromise,
+} from './driver/index.js';
 export type {
   Driver,
   DriverConfig,
   TransactionClient,
   CreateDriverOptions,
+  PoolStats,
+  HealthCheckResult,
+  HealthCheckConfig,
+  PoolMonitorConfig,
+  PoolMonitor,
+  RetryConfig,
 } from './driver/index.js';
 
 export { SQLCompiler, createCompiler } from './compiler/index.js';
