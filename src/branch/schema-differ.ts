@@ -530,8 +530,13 @@ export class SchemaDiffer {
     return (
       this.getColumnType(source) !== this.getColumnType(target) ||
       source.is_nullable !== target.is_nullable ||
-      source.column_default !== target.column_default
+      this.normalizeDefault(source.column_default) !== this.normalizeDefault(target.column_default)
     );
+  }
+
+  private normalizeDefault(value: string | null): string | null {
+    if (!value) return value;
+    return value.replace(/nextval\('[^']+\./g, "nextval('");
   }
 
   private isBreakingTypeChange(sourceType: string, targetType: string): boolean {

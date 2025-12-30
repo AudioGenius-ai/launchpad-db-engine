@@ -152,7 +152,8 @@ describe('ConnectionManager', () => {
   describe('generateConnectionString', () => {
     it('should generate valid connection string', () => {
       const connStr = connectionManager.generateConnectionString('branch_test');
-      expect(connStr).toContain('search_path=branch_test,public');
+      const decoded = decodeURIComponent(connStr);
+      expect(decoded).toContain('search_path=branch_test,public');
     });
   });
 
