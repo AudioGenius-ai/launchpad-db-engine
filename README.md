@@ -321,6 +321,10 @@ Unlike traditional ORMs, `@launchpad/db-engine` is designed specifically for mul
 3. **Dynamic schemas**: Register new table schemas at runtime without migrations
 4. **Type generation**: Get full TypeScript types from your dynamic schemas
 
+## Documentation
+
+- [Migration Guide](docs/MIGRATION_GUIDE.md) - Migrate from raw SQL to QueryBuilder with before/after examples
+
 ## Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
