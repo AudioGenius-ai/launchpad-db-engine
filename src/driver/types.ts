@@ -9,6 +9,30 @@ export interface DriverConfig {
   healthCheck?: HealthCheckConfig;
 }
 
+export type DrainPhase = 'draining' | 'cancelling' | 'closing' | 'complete';
+
+export interface DrainOptions {
+  timeout?: number;
+  onProgress?: (progress: DrainProgress) => void;
+  forceCancelOnTimeout?: boolean;
+}
+
+export interface DrainProgress {
+  phase: DrainPhase;
+  activeQueries: number;
+  completedQueries: number;
+  cancelledQueries: number;
+  elapsedMs: number;
+}
+
+export interface DrainResult {
+  success: boolean;
+  completedQueries: number;
+  cancelledQueries: number;
+  elapsedMs: number;
+  error?: Error;
+}
+
 export interface Driver {
   readonly dialect: DialectName;
   readonly connectionString: string;
@@ -30,6 +54,12 @@ export interface Driver {
   startHealthChecks(): void;
 
   stopHealthChecks(): void;
+
+  drainAndClose(options?: DrainOptions): Promise<DrainResult>;
+
+  getActiveQueryCount(): number;
+
+  readonly isDraining: boolean;
 }
 
 export interface TransactionClient {
