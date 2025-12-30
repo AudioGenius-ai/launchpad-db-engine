@@ -69,7 +69,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
 
     it('should store file metadata with tenant isolation', async () => {
       // Tenant 1 uploads a file
-      await db.table(storageTable, tenant1)
+      await db
+        .table(storageTable, tenant1)
         .insert()
         .values({
           bucket: 'uploads',
@@ -82,7 +83,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Tenant 2 uploads a file with same path
-      await db.table(storageTable, tenant2)
+      await db
+        .table(storageTable, tenant2)
         .insert()
         .values({
           bucket: 'uploads',
@@ -95,36 +97,58 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Tenant 1 can only see their file
-      const tenant1Files = await db.table(storageTable, tenant1)
+      const tenant1Files = await db
+        .table(storageTable, tenant1)
         .select('*')
         .where('bucket', '=', 'uploads')
         .execute();
-      
+
       expect(tenant1Files).toHaveLength(1);
       expect(tenant1Files[0].size_bytes).toBe(1024000);
 
       // Tenant 2 can only see their file
-      const tenant2Files = await db.table(storageTable, tenant2)
+      const tenant2Files = await db
+        .table(storageTable, tenant2)
         .select('*')
         .where('bucket', '=', 'uploads')
         .execute();
-      
+
       expect(tenant2Files).toHaveLength(1);
       expect(tenant2Files[0].size_bytes).toBe(2048000);
     });
 
     it('should list files in a bucket', async () => {
       // Upload multiple files
-      await db.table(storageTable, tenant1)
+      await db
+        .table(storageTable, tenant1)
         .insert()
         .values([
-          { bucket: 'images', path: '/photo1.jpg', filename: 'photo1.jpg', content_type: 'image/jpeg', size_bytes: 100 },
-          { bucket: 'images', path: '/photo2.jpg', filename: 'photo2.jpg', content_type: 'image/jpeg', size_bytes: 200 },
-          { bucket: 'documents', path: '/doc.pdf', filename: 'doc.pdf', content_type: 'application/pdf', size_bytes: 300 },
+          {
+            bucket: 'images',
+            path: '/photo1.jpg',
+            filename: 'photo1.jpg',
+            content_type: 'image/jpeg',
+            size_bytes: 100,
+          },
+          {
+            bucket: 'images',
+            path: '/photo2.jpg',
+            filename: 'photo2.jpg',
+            content_type: 'image/jpeg',
+            size_bytes: 200,
+          },
+          {
+            bucket: 'documents',
+            path: '/doc.pdf',
+            filename: 'doc.pdf',
+            content_type: 'application/pdf',
+            size_bytes: 300,
+          },
         ])
         .execute();
 
-      const imageFiles = await db.table(storageTable, tenant1)
+      const imageFiles = await db
+        .table(storageTable, tenant1)
         .select('filename', 'size_bytes')
         .where('bucket', '=', 'images')
         .orderBy('filename', 'asc')
@@ -136,17 +160,16 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     });
 
     it('should delete file metadata', async () => {
-      await db.table(storageTable, tenant1)
+      await db
+        .table(storageTable, tenant1)
         .insert()
         .values({ bucket: 'temp', path: '/temp.txt', filename: 'temp.txt', size_bytes: 10 })
         .execute();
 
-      await db.table(storageTable, tenant1)
-        .delete()
-        .where('path', '=', '/temp.txt')
-        .execute();
+      await db.table(storageTable, tenant1).delete().where('path', '=', '/temp.txt').execute();
 
-      const files = await db.table(storageTable, tenant1)
+      const files = await db
+        .table(storageTable, tenant1)
         .select('*')
         .where('bucket', '=', 'temp')
         .execute();
@@ -192,7 +215,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       const workflowId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
       // Create execution
-      const [execution] = await db.table(workflowTable, tenant1)
+      const [execution] = await db
+        .table(workflowTable, tenant1)
         .insert()
         .values({
           workflow_id: workflowId,
@@ -206,7 +230,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       expect(execution.status).toBe('running');
 
       // Update execution status
-      await db.table(workflowTable, tenant1)
+      await db
+        .table(workflowTable, tenant1)
         .update()
         .set({
           status: 'completed',
@@ -217,7 +242,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Verify update
-      const [updated] = await db.table(workflowTable, tenant1)
+      const [updated] = await db
+        .table(workflowTable, tenant1)
         .select('*')
         .where('id', '=', execution.id)
         .execute();
@@ -229,7 +255,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     it('should query executions by status', async () => {
       const workflowId = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22';
 
-      await db.table(workflowTable, tenant1)
+      await db
+        .table(workflowTable, tenant1)
         .insert()
         .values([
           { workflow_id: workflowId, status: 'completed', input: {} },
@@ -239,14 +266,16 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         ])
         .execute();
 
-      const completed = await db.table(workflowTable, tenant1)
+      const completed = await db
+        .table(workflowTable, tenant1)
         .select('*')
         .where('status', '=', 'completed')
         .execute();
 
       expect(completed).toHaveLength(2);
 
-      const failed = await db.table(workflowTable, tenant1)
+      const failed = await db
+        .table(workflowTable, tenant1)
         .select('*')
         .where('status', '=', 'failed')
         .execute();
@@ -288,7 +317,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     });
 
     it('should store and retrieve encrypted secrets', async () => {
-      await db.table(secretsTable, tenant1)
+      await db
+        .table(secretsTable, tenant1)
         .insert()
         .values({
           name: 'API_KEY',
@@ -298,7 +328,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         })
         .execute();
 
-      const [secret] = await db.table(secretsTable, tenant1)
+      const [secret] = await db
+        .table(secretsTable, tenant1)
         .select('name', 'encrypted_value', 'version')
         .where('name', '=', 'API_KEY')
         .where('is_active', '=', true)
@@ -310,7 +341,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
 
     it('should handle secret rotation with versions', async () => {
       // Create initial secret
-      await db.table(secretsTable, tenant1)
+      await db
+        .table(secretsTable, tenant1)
         .insert()
         .values({
           name: 'DB_PASSWORD',
@@ -321,7 +353,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Rotate secret - mark old as inactive
-      await db.table(secretsTable, tenant1)
+      await db
+        .table(secretsTable, tenant1)
         .update()
         .set({ is_active: false, rotated_at: new Date() })
         .where('name', '=', 'DB_PASSWORD')
@@ -329,7 +362,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Create new version
-      await db.table(secretsTable, tenant1)
+      await db
+        .table(secretsTable, tenant1)
         .insert()
         .values({
           name: 'DB_PASSWORD',
@@ -340,7 +374,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       // Get active secret
-      const [activeSecret] = await db.table(secretsTable, tenant1)
+      const [activeSecret] = await db
+        .table(secretsTable, tenant1)
         .select('*')
         .where('name', '=', 'DB_PASSWORD')
         .where('is_active', '=', true)
@@ -350,7 +385,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       expect(activeSecret.encrypted_value).toBe('encrypted:newpassword');
 
       // Verify old version still exists but inactive
-      const allVersions = await db.table(secretsTable, tenant1)
+      const allVersions = await db
+        .table(secretsTable, tenant1)
         .select('version', 'is_active')
         .where('name', '=', 'DB_PASSWORD')
         .orderBy('version', 'asc')
@@ -362,22 +398,26 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     });
 
     it('should enforce tenant isolation for secrets', async () => {
-      await db.table(secretsTable, tenant1)
+      await db
+        .table(secretsTable, tenant1)
         .insert()
         .values({ name: 'SHARED_NAME', encrypted_value: 'tenant1secret', version: 1 })
         .execute();
 
-      await db.table(secretsTable, tenant2)
+      await db
+        .table(secretsTable, tenant2)
         .insert()
         .values({ name: 'SHARED_NAME', encrypted_value: 'tenant2secret', version: 1 })
         .execute();
 
-      const tenant1Secret = await db.table(secretsTable, tenant1)
+      const tenant1Secret = await db
+        .table(secretsTable, tenant1)
         .select('encrypted_value')
         .where('name', '=', 'SHARED_NAME')
         .execute();
 
-      const tenant2Secret = await db.table(secretsTable, tenant2)
+      const tenant2Secret = await db
+        .table(secretsTable, tenant2)
         .select('encrypted_value')
         .where('name', '=', 'SHARED_NAME')
         .execute();
@@ -437,11 +477,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
 
       const orderId = await db.transaction(tenant1, async (trx) => {
         // Create order
-        const [order] = await trx.raw<{ id: string }>(
-          `INSERT INTO ${ordersTable} (customer_id, total_amount, status, app_id, organization_id)
+        const [order] = await trx
+          .raw<{ id: string }>(
+            `INSERT INTO ${ordersTable} (customer_id, total_amount, status, app_id, organization_id)
            VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [customerId, 99.99, 'confirmed', tenant1.appId, tenant1.organizationId]
-        ).then(r => r.rows);
+            [customerId, 99.99, 'confirmed', tenant1.appId, tenant1.organizationId]
+          )
+          .then((r) => r.rows);
 
         // Create payment record
         await trx.raw(
@@ -454,8 +496,16 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       });
 
       // Verify both records exist
-      const orders = await db.table(ordersTable, tenant1).select('*').where('id', '=', orderId).execute();
-      const payments = await db.table(paymentsTable, tenant1).select('*').where('order_id', '=', orderId).execute();
+      const orders = await db
+        .table(ordersTable, tenant1)
+        .select('*')
+        .where('id', '=', orderId)
+        .execute();
+      const payments = await db
+        .table(paymentsTable, tenant1)
+        .select('*')
+        .where('order_id', '=', orderId)
+        .execute();
 
       expect(orders).toHaveLength(1);
       expect(payments).toHaveLength(1);
@@ -469,11 +519,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       await expect(async () => {
         await db.transaction(tenant1, async (trx) => {
           // Create order
-          const [order] = await trx.raw<{ id: string }>(
-            `INSERT INTO ${ordersTable} (customer_id, total_amount, status, app_id, organization_id)
+          const [order] = await trx
+            .raw<{ id: string }>(
+              `INSERT INTO ${ordersTable} (customer_id, total_amount, status, app_id, organization_id)
              VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [customerId, 149.99, 'pending', tenant1.appId, tenant1.organizationId]
-          ).then(r => r.rows);
+              [customerId, 149.99, 'pending', tenant1.appId, tenant1.organizationId]
+            )
+            .then((r) => r.rows);
 
           // Simulate payment failure
           throw new Error('Payment declined');
@@ -481,7 +533,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       }).rejects.toThrow('Payment declined');
 
       // Verify neither record exists
-      const orders = await db.table(ordersTable, tenant1)
+      const orders = await db
+        .table(ordersTable, tenant1)
         .select('*')
         .where('customer_id', '=', customerId)
         .execute();
@@ -518,7 +571,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
 
     it('should handle concurrent increments with transactions', async () => {
       // Create initial counter
-      await db.table(counterTable, tenant1)
+      await db
+        .table(counterTable, tenant1)
         .insert()
         .values({ name: 'page_views', value: 0 })
         .execute();
@@ -538,7 +592,8 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       await Promise.all(incrementPromises);
 
       // Verify final count
-      const [counter] = await db.table(counterTable, tenant1)
+      const [counter] = await db
+        .table(counterTable, tenant1)
         .select('value')
         .where('name', '=', 'page_views')
         .execute();
@@ -548,12 +603,14 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
 
     it('should isolate concurrent operations between tenants', async () => {
       // Create counters for both tenants
-      await db.table(counterTable, tenant1)
+      await db
+        .table(counterTable, tenant1)
         .insert()
         .values({ name: 'shared_counter', value: 0 })
         .execute();
 
-      await db.table(counterTable, tenant2)
+      await db
+        .table(counterTable, tenant2)
         .insert()
         .values({ name: 'shared_counter', value: 0 })
         .execute();
@@ -583,12 +640,14 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
       await Promise.all(ops);
 
       // Verify tenant isolation
-      const [tenant1Counter] = await db.table(counterTable, tenant1)
+      const [tenant1Counter] = await db
+        .table(counterTable, tenant1)
         .select('value')
         .where('name', '=', 'shared_counter')
         .execute();
 
-      const [tenant2Counter] = await db.table(counterTable, tenant2)
+      const [tenant2Counter] = await db
+        .table(counterTable, tenant2)
         .select('value')
         .where('name', '=', 'shared_counter')
         .execute();
