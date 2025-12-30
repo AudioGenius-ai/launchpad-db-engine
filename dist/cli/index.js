@@ -8,6 +8,402 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/driver/query-tracker.ts
+var QueryTracker;
+var init_query_tracker = __esm({
+  "src/driver/query-tracker.ts"() {
+    "use strict";
+    QueryTracker = class {
+      activeQueries = /* @__PURE__ */ new Map();
+      completedCount = 0;
+      cancelledCount = 0;
+      draining = false;
+      drainResolve = null;
+      trackQuery(id, query, backendPid) {
+        if (this.draining) {
+          throw new Error("Driver is draining - new queries are not accepted");
+        }
+        this.activeQueries.set(id, {
+          id,
+          query: query.slice(0, 200),
+          startedAt: /* @__PURE__ */ new Date(),
+          backendPid
+        });
+      }
+      untrackQuery(id) {
+        if (this.activeQueries.delete(id)) {
+          this.completedCount++;
+          if (this.draining && this.activeQueries.size === 0 && this.drainResolve) {
+            this.drainResolve();
+          }
+        }
+      }
+      getActiveCount() {
+        return this.activeQueries.size;
+      }
+      getActiveQueries() {
+        return Array.from(this.activeQueries.values());
+      }
+      async startDrain(timeoutMs) {
+        this.draining = true;
+        if (this.activeQueries.size === 0) {
+          return { timedOut: false };
+        }
+        const drainPromise = new Promise((resolve) => {
+          this.drainResolve = resolve;
+        });
+        const timeoutPromise = new Promise((resolve) => {
+          setTimeout(() => resolve("timeout"), timeoutMs);
+        });
+        const result = await Promise.race([
+          drainPromise.then(() => "drained"),
+          timeoutPromise
+        ]);
+        return { timedOut: result === "timeout" };
+      }
+      markCancelled(id) {
+        if (this.activeQueries.delete(id)) {
+          this.cancelledCount++;
+          if (this.draining && this.activeQueries.size === 0 && this.drainResolve) {
+            this.drainResolve();
+          }
+        }
+      }
+      getStats() {
+        return {
+          completed: this.completedCount,
+          cancelled: this.cancelledCount,
+          active: this.activeQueries.size
+        };
+      }
+      isDraining() {
+        return this.draining;
+      }
+      reset() {
+        this.activeQueries.clear();
+        this.completedCount = 0;
+        this.cancelledCount = 0;
+        this.draining = false;
+        this.drainResolve = null;
+      }
+    };
+  }
+});
+
+// src/driver/mongodb.ts
+var mongodb_exports = {};
+__export(mongodb_exports, {
+  createMongoDriver: () => createMongoDriver,
+  isMongoDriver: () => isMongoDriver
+});
+async function getMongoDBModule() {
+  if (!mongodbModule) {
+    try {
+      mongodbModule = await import("mongodb");
+    } catch {
+      throw new Error(
+        "MongoDB driver not found. Please install mongodb package: npm install mongodb"
+      );
+    }
+  }
+  return mongodbModule;
+}
+async function createMongoDriver(config) {
+  const mongodb = await getMongoDBModule();
+  const { MongoClient } = mongodb;
+  const client = new MongoClient(config.connectionString, {
+    maxPoolSize: config.max ?? 10,
+    serverSelectionTimeoutMS: config.connectTimeout ?? 5e3,
+    maxIdleTimeMS: config.idleTimeout ?? 3e4
+  });
+  await client.connect();
+  const db = client.db(config.database);
+  const tracker = new QueryTracker();
+  let queryIdCounter = 0;
+  let draining = false;
+  const generateQueryId = () => `mongo-${++queryIdCounter}`;
+  async function executeOperation(op) {
+    const queryId = generateQueryId();
+    tracker.trackQuery(queryId, `${op.type}:${op.collection}`);
+    try {
+      const collection = db.collection(op.collection);
+      switch (op.type) {
+        case "find": {
+          let cursor = collection.find(op.filter ?? {});
+          if (op.options?.sort) cursor = cursor.sort(op.options.sort);
+          if (op.options?.skip) cursor = cursor.skip(op.options.skip);
+          if (op.options?.limit) cursor = cursor.limit(op.options.limit);
+          if (op.options?.projection) cursor = cursor.project(op.options.projection);
+          const rows = await cursor.toArray();
+          return { rows, rowCount: rows.length };
+        }
+        case "aggregate": {
+          const result = await collection.aggregate(op.pipeline).toArray();
+          return { rows: result, rowCount: result.length };
+        }
+        case "insertOne": {
+          const result = await collection.insertOne(op.document);
+          const doc = { ...op.document, _id: result.insertedId };
+          return { rows: [doc], rowCount: 1 };
+        }
+        case "insertMany": {
+          const result = await collection.insertMany(op.documents);
+          return { rows: op.documents, rowCount: result.insertedCount };
+        }
+        case "updateOne": {
+          const result = await collection.updateOne(op.filter, op.update, {
+            upsert: op.options?.upsert
+          });
+          return { rows: [], rowCount: result.modifiedCount };
+        }
+        case "updateMany": {
+          const result = await collection.updateMany(op.filter, op.update, {
+            upsert: op.options?.upsert
+          });
+          return { rows: [], rowCount: result.modifiedCount };
+        }
+        case "deleteOne": {
+          const result = await collection.deleteOne(op.filter);
+          return { rows: [], rowCount: result.deletedCount };
+        }
+        case "deleteMany": {
+          const result = await collection.deleteMany(op.filter);
+          return { rows: [], rowCount: result.deletedCount };
+        }
+        case "findOneAndUpdate": {
+          const result = await collection.findOneAndUpdate(op.filter, op.update, {
+            returnDocument: op.options?.returnDocument ?? "after",
+            upsert: op.options?.upsert,
+            projection: op.options?.projection
+          });
+          return { rows: result ? [result] : [], rowCount: result ? 1 : 0 };
+        }
+        case "findOneAndDelete": {
+          const result = await collection.findOneAndDelete(op.filter, {
+            projection: op.options?.projection
+          });
+          return { rows: result ? [result] : [], rowCount: result ? 1 : 0 };
+        }
+        case "countDocuments": {
+          const count = await collection.countDocuments(op.filter ?? {});
+          return { rows: [{ count }], rowCount: 1 };
+        }
+        default:
+          throw new Error(`Unsupported MongoDB operation: ${op.type}`);
+      }
+    } finally {
+      tracker.untrackQuery(queryId);
+    }
+  }
+  async function executeOperationWithSession(op, session) {
+    const queryId = generateQueryId();
+    tracker.trackQuery(queryId, `${op.type}:${op.collection}`);
+    try {
+      const collection = db.collection(op.collection);
+      switch (op.type) {
+        case "find": {
+          let cursor = collection.find(op.filter ?? {}, { session });
+          if (op.options?.sort) cursor = cursor.sort(op.options.sort);
+          if (op.options?.skip) cursor = cursor.skip(op.options.skip);
+          if (op.options?.limit) cursor = cursor.limit(op.options.limit);
+          if (op.options?.projection) cursor = cursor.project(op.options.projection);
+          const rows = await cursor.toArray();
+          return { rows, rowCount: rows.length };
+        }
+        case "aggregate": {
+          const result = await collection.aggregate(op.pipeline, { session }).toArray();
+          return { rows: result, rowCount: result.length };
+        }
+        case "insertOne": {
+          const result = await collection.insertOne(op.document, { session });
+          const doc = { ...op.document, _id: result.insertedId };
+          return { rows: [doc], rowCount: 1 };
+        }
+        case "insertMany": {
+          const result = await collection.insertMany(op.documents, { session });
+          return { rows: op.documents, rowCount: result.insertedCount };
+        }
+        case "updateOne": {
+          const result = await collection.updateOne(op.filter, op.update, {
+            upsert: op.options?.upsert,
+            session
+          });
+          return { rows: [], rowCount: result.modifiedCount };
+        }
+        case "updateMany": {
+          const result = await collection.updateMany(op.filter, op.update, {
+            upsert: op.options?.upsert,
+            session
+          });
+          return { rows: [], rowCount: result.modifiedCount };
+        }
+        case "deleteOne": {
+          const result = await collection.deleteOne(op.filter, { session });
+          return { rows: [], rowCount: result.deletedCount };
+        }
+        case "deleteMany": {
+          const result = await collection.deleteMany(op.filter, { session });
+          return { rows: [], rowCount: result.deletedCount };
+        }
+        case "findOneAndUpdate": {
+          const result = await collection.findOneAndUpdate(op.filter, op.update, {
+            returnDocument: op.options?.returnDocument ?? "after",
+            upsert: op.options?.upsert,
+            projection: op.options?.projection,
+            session
+          });
+          return { rows: result ? [result] : [], rowCount: result ? 1 : 0 };
+        }
+        case "findOneAndDelete": {
+          const result = await collection.findOneAndDelete(op.filter, {
+            projection: op.options?.projection,
+            session
+          });
+          return { rows: result ? [result] : [], rowCount: result ? 1 : 0 };
+        }
+        case "countDocuments": {
+          const count = await collection.countDocuments(op.filter ?? {}, { session });
+          return { rows: [{ count }], rowCount: 1 };
+        }
+        default:
+          throw new Error(`Unsupported MongoDB operation: ${op.type}`);
+      }
+    } finally {
+      tracker.untrackQuery(queryId);
+    }
+  }
+  const driver = {
+    dialect: "mongodb",
+    connectionString: config.connectionString,
+    get isDraining() {
+      return draining;
+    },
+    async query(_sql, _params) {
+      throw new Error(
+        "MongoDriver does not support SQL queries. Use executeOperation() with MongoOperation instead."
+      );
+    },
+    async execute(_sql, _params) {
+      throw new Error(
+        "MongoDriver does not support SQL execution. Use executeOperation() with MongoOperation instead."
+      );
+    },
+    async transaction(fn) {
+      const txQueryId = generateQueryId();
+      tracker.trackQuery(txQueryId, "TRANSACTION");
+      const session = client.startSession();
+      try {
+        session.startTransaction();
+        const trxClient = new MongoTransactionClientImpl(session, executeOperationWithSession);
+        const result = await fn(trxClient);
+        await session.commitTransaction();
+        return result;
+      } catch (error) {
+        await session.abortTransaction();
+        throw error;
+      } finally {
+        await session.endSession();
+        tracker.untrackQuery(txQueryId);
+      }
+    },
+    getActiveQueryCount() {
+      return tracker.getActiveCount();
+    },
+    async drainAndClose(options = {}) {
+      const startTime = Date.now();
+      const timeout = options.timeout ?? 3e4;
+      draining = true;
+      const initialActive = tracker.getActiveCount();
+      options.onProgress?.({
+        phase: "draining",
+        activeQueries: initialActive,
+        completedQueries: 0,
+        cancelledQueries: 0,
+        elapsedMs: 0
+      });
+      console.log(`[db-engine] Starting graceful shutdown with ${initialActive} active queries`);
+      const { timedOut } = await tracker.startDrain(timeout);
+      let cancelledQueries = 0;
+      if (timedOut) {
+        const activeQueries = tracker.getActiveQueries();
+        console.log(`[db-engine] Timeout reached, ${activeQueries.length} queries still active`);
+        cancelledQueries = activeQueries.length;
+        options.onProgress?.({
+          phase: "cancelling",
+          activeQueries: activeQueries.length,
+          completedQueries: tracker.getStats().completed,
+          cancelledQueries: 0,
+          elapsedMs: Date.now() - startTime
+        });
+        for (const query of activeQueries) {
+          tracker.markCancelled(query.id);
+        }
+      }
+      options.onProgress?.({
+        phase: "closing",
+        activeQueries: 0,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      });
+      console.log("[db-engine] Closing database connection");
+      await client.close(true);
+      const result = {
+        success: true,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      };
+      options.onProgress?.({
+        phase: "complete",
+        activeQueries: 0,
+        completedQueries: result.completedQueries,
+        cancelledQueries: result.cancelledQueries,
+        elapsedMs: result.elapsedMs
+      });
+      console.log(`[db-engine] Shutdown complete in ${result.elapsedMs}ms`);
+      return result;
+    },
+    async close() {
+      await client.close();
+    },
+    executeOperation,
+    getDb() {
+      return db;
+    },
+    collection(name) {
+      return db.collection(name);
+    }
+  };
+  return driver;
+}
+function isMongoDriver(driver) {
+  return driver.dialect === "mongodb" && "executeOperation" in driver;
+}
+var mongodbModule, MongoTransactionClientImpl;
+var init_mongodb = __esm({
+  "src/driver/mongodb.ts"() {
+    "use strict";
+    init_query_tracker();
+    mongodbModule = null;
+    MongoTransactionClientImpl = class {
+      constructor(session, execWithSession) {
+        this.session = session;
+        this.execWithSession = execWithSession;
+      }
+      async query(_sql, _params) {
+        throw new Error("MongoTransactionClient does not support SQL queries.");
+      }
+      async execute(_sql, _params) {
+        throw new Error("MongoTransactionClient does not support SQL execution.");
+      }
+      async executeOperation(op) {
+        return this.execWithSession(op, this.session);
+      }
+    };
+  }
+});
+
 // src/driver/mysql.ts
 var mysql_exports = {};
 __export(mysql_exports, {
@@ -22,23 +418,44 @@ async function createMySQLDriver(config) {
     idleTimeout: (config.idleTimeout ?? 30) * 1e3,
     connectTimeout: (config.connectTimeout ?? 10) * 1e3
   });
+  const tracker = new QueryTracker();
+  let queryIdCounter = 0;
+  let draining = false;
+  const generateQueryId = () => `mysql-${++queryIdCounter}`;
   return {
     dialect: "mysql",
     connectionString: config.connectionString,
+    get isDraining() {
+      return draining;
+    },
     async query(queryText, params = []) {
-      const [rows] = await pool.execute(queryText, params);
-      const resultRows = Array.isArray(rows) ? rows : [];
-      return {
-        rows: resultRows,
-        rowCount: resultRows.length
-      };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const [rows] = await pool.execute(queryText, params);
+        const resultRows = Array.isArray(rows) ? rows : [];
+        return {
+          rows: resultRows,
+          rowCount: resultRows.length
+        };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async execute(queryText, params = []) {
-      const [result] = await pool.execute(queryText, params);
-      const affectedRows = result.affectedRows ?? 0;
-      return { rowCount: affectedRows };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const [result] = await pool.execute(queryText, params);
+        const affectedRows = result.affectedRows ?? 0;
+        return { rowCount: affectedRows };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async transaction(fn) {
+      const txQueryId = generateQueryId();
+      tracker.trackQuery(txQueryId, "TRANSACTION");
       const connection = await pool.getConnection();
       await connection.beginTransaction();
       try {
@@ -65,7 +482,77 @@ async function createMySQLDriver(config) {
         throw error;
       } finally {
         connection.release();
+        tracker.untrackQuery(txQueryId);
       }
+    },
+    getActiveQueryCount() {
+      return tracker.getActiveCount();
+    },
+    async drainAndClose(options = {}) {
+      const startTime = Date.now();
+      const timeout = options.timeout ?? 3e4;
+      const forceCancelOnTimeout = options.forceCancelOnTimeout ?? true;
+      draining = true;
+      const initialActive = tracker.getActiveCount();
+      options.onProgress?.({
+        phase: "draining",
+        activeQueries: initialActive,
+        completedQueries: 0,
+        cancelledQueries: 0,
+        elapsedMs: 0
+      });
+      console.log(`[db-engine] Starting graceful shutdown with ${initialActive} active queries`);
+      const { timedOut } = await tracker.startDrain(timeout);
+      let cancelledQueries = 0;
+      if (timedOut && forceCancelOnTimeout) {
+        const activeQueries = tracker.getActiveQueries();
+        console.log(`[db-engine] Timeout reached, cancelling ${activeQueries.length} queries`);
+        options.onProgress?.({
+          phase: "cancelling",
+          activeQueries: activeQueries.length,
+          completedQueries: tracker.getStats().completed,
+          cancelledQueries: 0,
+          elapsedMs: Date.now() - startTime
+        });
+        for (const query of activeQueries) {
+          if (query.backendPid) {
+            try {
+              await pool.execute(`KILL QUERY ${query.backendPid}`);
+              tracker.markCancelled(query.id);
+              cancelledQueries++;
+            } catch (e) {
+              console.warn(`[db-engine] Failed to cancel query ${query.id}:`, e);
+            }
+          } else {
+            tracker.markCancelled(query.id);
+            cancelledQueries++;
+          }
+        }
+      }
+      options.onProgress?.({
+        phase: "closing",
+        activeQueries: 0,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      });
+      console.log("[db-engine] Closing database connections");
+      await pool.end();
+      const result = {
+        success: true,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      };
+      options.onProgress?.({
+        phase: "complete",
+        activeQueries: 0,
+        completedQueries: result.completedQueries,
+        cancelledQueries: result.cancelledQueries,
+        elapsedMs: result.elapsedMs
+      });
+      console.log(`[db-engine] Shutdown complete in ${result.elapsedMs}ms`);
+      return result;
     },
     async close() {
       await pool.end();
@@ -75,6 +562,7 @@ async function createMySQLDriver(config) {
 var init_mysql = __esm({
   "src/driver/mysql.ts"() {
     "use strict";
+    init_query_tracker();
   }
 });
 
@@ -89,23 +577,44 @@ async function createSQLiteDriver(config) {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  const tracker = new QueryTracker();
+  let queryIdCounter = 0;
+  let draining = false;
+  const generateQueryId = () => `sqlite-${++queryIdCounter}`;
   return {
     dialect: "sqlite",
     connectionString: config.connectionString,
+    get isDraining() {
+      return draining;
+    },
     async query(queryText, params = []) {
-      const stmt = db.prepare(queryText);
-      const rows = stmt.all(...params);
-      return {
-        rows,
-        rowCount: rows.length
-      };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const stmt = db.prepare(queryText);
+        const rows = stmt.all(...params);
+        return {
+          rows,
+          rowCount: rows.length
+        };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async execute(queryText, params = []) {
-      const stmt = db.prepare(queryText);
-      const result = stmt.run(...params);
-      return { rowCount: result.changes };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const stmt = db.prepare(queryText);
+        const result = stmt.run(...params);
+        return { rowCount: result.changes };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async transaction(fn) {
+      const txQueryId = generateQueryId();
+      tracker.trackQuery(txQueryId, "TRANSACTION");
       const client = {
         async query(queryText, params = []) {
           const stmt = db.prepare(queryText);
@@ -134,7 +643,49 @@ async function createSQLiteDriver(config) {
           db.prepare("ROLLBACK").run();
         }
         throw error;
+      } finally {
+        tracker.untrackQuery(txQueryId);
       }
+    },
+    getActiveQueryCount() {
+      return tracker.getActiveCount();
+    },
+    async drainAndClose(options = {}) {
+      const startTime = Date.now();
+      draining = true;
+      const initialActive = tracker.getActiveCount();
+      options.onProgress?.({
+        phase: "draining",
+        activeQueries: initialActive,
+        completedQueries: 0,
+        cancelledQueries: 0,
+        elapsedMs: 0
+      });
+      console.log(`[db-engine] Starting graceful shutdown with ${initialActive} active queries`);
+      options.onProgress?.({
+        phase: "closing",
+        activeQueries: 0,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries: 0,
+        elapsedMs: Date.now() - startTime
+      });
+      console.log("[db-engine] Closing database connection");
+      db.close();
+      const result = {
+        success: true,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries: 0,
+        elapsedMs: Date.now() - startTime
+      };
+      options.onProgress?.({
+        phase: "complete",
+        activeQueries: 0,
+        completedQueries: result.completedQueries,
+        cancelledQueries: result.cancelledQueries,
+        elapsedMs: result.elapsedMs
+      });
+      console.log(`[db-engine] Shutdown complete in ${result.elapsedMs}ms`);
+      return result;
     },
     async close() {
       db.close();
@@ -144,6 +695,7 @@ async function createSQLiteDriver(config) {
 var init_sqlite = __esm({
   "src/driver/sqlite.ts"() {
     "use strict";
+    init_query_tracker();
   }
 });
 
@@ -152,6 +704,7 @@ import { mkdir, readFile as readFile3, writeFile } from "fs/promises";
 import { dirname, join as join3 } from "path";
 
 // src/driver/postgresql.ts
+init_query_tracker();
 import postgres from "postgres";
 function createPostgresDriver(config) {
   const sql = postgres(config.connectionString, {
@@ -160,37 +713,130 @@ function createPostgresDriver(config) {
     connect_timeout: config.connectTimeout ?? 10,
     prepare: true
   });
+  const tracker = new QueryTracker();
+  let queryIdCounter = 0;
+  let draining = false;
+  const generateQueryId = () => `pg-${++queryIdCounter}`;
   return {
     dialect: "postgresql",
     connectionString: config.connectionString,
+    get isDraining() {
+      return draining;
+    },
     async query(queryText, params = []) {
-      const result = await sql.unsafe(queryText, params);
-      return {
-        rows: result,
-        rowCount: result.length
-      };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const result = await sql.unsafe(queryText, params);
+        return {
+          rows: result,
+          rowCount: result.length
+        };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async execute(queryText, params = []) {
-      const result = await sql.unsafe(queryText, params);
-      return { rowCount: result.count ?? 0 };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+      try {
+        const result = await sql.unsafe(queryText, params);
+        return { rowCount: result.count ?? 0 };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
     async transaction(fn) {
-      const result = await sql.begin(async (tx) => {
-        const client = {
-          async query(queryText, params = []) {
-            const txResult = await tx.unsafe(queryText, params);
-            return {
-              rows: txResult,
-              rowCount: txResult.length
-            };
-          },
-          async execute(queryText, params = []) {
-            const txResult = await tx.unsafe(queryText, params);
-            return { rowCount: txResult.count ?? 0 };
-          }
-        };
-        return fn(client);
+      const txQueryId = generateQueryId();
+      tracker.trackQuery(txQueryId, "TRANSACTION");
+      try {
+        const result = await sql.begin(async (tx) => {
+          const client = {
+            async query(queryText, params = []) {
+              const txResult = await tx.unsafe(queryText, params);
+              return {
+                rows: txResult,
+                rowCount: txResult.length
+              };
+            },
+            async execute(queryText, params = []) {
+              const txResult = await tx.unsafe(queryText, params);
+              return { rowCount: txResult.count ?? 0 };
+            }
+          };
+          return fn(client);
+        });
+        return result;
+      } finally {
+        tracker.untrackQuery(txQueryId);
+      }
+    },
+    getActiveQueryCount() {
+      return tracker.getActiveCount();
+    },
+    async drainAndClose(options = {}) {
+      const startTime = Date.now();
+      const timeout = options.timeout ?? 3e4;
+      const forceCancelOnTimeout = options.forceCancelOnTimeout ?? true;
+      draining = true;
+      const initialActive = tracker.getActiveCount();
+      options.onProgress?.({
+        phase: "draining",
+        activeQueries: initialActive,
+        completedQueries: 0,
+        cancelledQueries: 0,
+        elapsedMs: 0
       });
+      console.log(`[db-engine] Starting graceful shutdown with ${initialActive} active queries`);
+      const { timedOut } = await tracker.startDrain(timeout);
+      let cancelledQueries = 0;
+      if (timedOut && forceCancelOnTimeout) {
+        const activeQueries = tracker.getActiveQueries();
+        console.log(`[db-engine] Timeout reached, cancelling ${activeQueries.length} queries`);
+        options.onProgress?.({
+          phase: "cancelling",
+          activeQueries: activeQueries.length,
+          completedQueries: tracker.getStats().completed,
+          cancelledQueries: 0,
+          elapsedMs: Date.now() - startTime
+        });
+        for (const query of activeQueries) {
+          try {
+            await sql.unsafe(
+              `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+               WHERE state = 'active' AND query LIKE $1`,
+              [`%${query.query.slice(0, 50)}%`]
+            );
+            tracker.markCancelled(query.id);
+            cancelledQueries++;
+          } catch (e) {
+            console.warn(`[db-engine] Failed to cancel query ${query.id}:`, e);
+          }
+        }
+      }
+      options.onProgress?.({
+        phase: "closing",
+        activeQueries: 0,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      });
+      console.log("[db-engine] Closing database connections");
+      await sql.end();
+      const result = {
+        success: true,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries,
+        elapsedMs: Date.now() - startTime
+      };
+      options.onProgress?.({
+        phase: "complete",
+        activeQueries: 0,
+        completedQueries: result.completedQueries,
+        cancelledQueries: result.cancelledQueries,
+        elapsedMs: result.elapsedMs
+      });
+      console.log(`[db-engine] Shutdown complete in ${result.elapsedMs}ms`);
       return result;
     },
     async close() {
@@ -200,7 +846,12 @@ function createPostgresDriver(config) {
 }
 
 // src/driver/index.ts
+init_mongodb();
+init_query_tracker();
 function detectDialect(connectionString) {
+  if (connectionString.startsWith("mongodb://") || connectionString.startsWith("mongodb+srv://")) {
+    return "mongodb";
+  }
   if (connectionString.startsWith("postgres://") || connectionString.startsWith("postgresql://")) {
     return "postgresql";
   }
@@ -224,6 +875,10 @@ async function createDriver(options) {
     case "sqlite": {
       const { createSQLiteDriver: createSQLiteDriver2 } = await Promise.resolve().then(() => (init_sqlite(), sqlite_exports));
       return createSQLiteDriver2(options);
+    }
+    case "mongodb": {
+      const { createMongoDriver: createMongoDriver2 } = await Promise.resolve().then(() => (init_mongodb(), mongodb_exports));
+      return createMongoDriver2(options);
     }
     default:
       throw new Error(`Unsupported dialect: ${dialect}`);
@@ -687,6 +1342,10 @@ function getDialect(name) {
       return mysqlDialect;
     case "sqlite":
       return sqliteDialect;
+    case "mongodb":
+      throw new Error(
+        "MongoDB uses a different dialect interface. Use mongoDialect and executeMongoMigration instead."
+      );
     default:
       throw new Error(`Unsupported dialect: ${name}`);
   }

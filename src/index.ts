@@ -11,6 +11,8 @@ export {
   isRetryableError,
   withRetry,
   createTimeoutPromise,
+  registerSignalHandlers,
+  QueryTracker,
 } from './driver/index.js';
 export type {
   Driver,
@@ -23,6 +25,12 @@ export type {
   PoolMonitorConfig,
   PoolMonitor,
   RetryConfig,
+  DrainOptions,
+  DrainProgress,
+  DrainResult,
+  DrainPhase,
+  QueryInfo,
+  SignalHandlerOptions,
 } from './driver/index.js';
 
 export { SQLCompiler, createCompiler } from './compiler/index.js';

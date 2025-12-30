@@ -2,9 +2,19 @@ import type { DialectName } from '../types/index.js';
 import { createPostgresDriver } from './postgresql.js';
 import type { Driver, DriverConfig } from './types.js';
 
-export type { Driver, DriverConfig, TransactionClient } from './types.js';
+export type {
+  Driver,
+  DriverConfig,
+  TransactionClient,
+  DrainOptions,
+  DrainProgress,
+  DrainResult,
+  DrainPhase,
+} from './types.js';
 export type { MongoDriver, MongoDriverConfig, MongoTransactionClient } from './mongodb.js';
 export { createMongoDriver, isMongoDriver } from './mongodb.js';
+export { QueryTracker, type QueryInfo } from './query-tracker.js';
+export { registerSignalHandlers, type SignalHandlerOptions } from './signal-handler.js';
 
 export type {
   PoolStats,

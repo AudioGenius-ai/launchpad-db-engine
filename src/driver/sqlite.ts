@@ -5,7 +5,8 @@ import {
   createHealthCheckResult,
   getDefaultHealthCheckConfig,
 } from './health.js';
-import type { Driver, DriverConfig, TransactionClient } from './types.js';
+import { QueryTracker } from './query-tracker.js';
+import type { Driver, DriverConfig, DrainOptions, DrainResult, TransactionClient } from './types.js';
 
 export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> {
   const Database = (await import('better-sqlite3')).default;
@@ -20,6 +21,12 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
   let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
+
+  const tracker = new QueryTracker();
+  let queryIdCounter = 0;
+  let draining = false;
+
+  const generateQueryId = () => `sqlite-${++queryIdCounter}`;
 
   function performHealthCheck(): HealthCheckResult {
     const startTime = Date.now();
@@ -54,25 +61,46 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
     dialect: 'sqlite',
     connectionString: config.connectionString,
 
+    get isDraining() {
+      return draining;
+    },
+
     async query<T = Record<string, unknown>>(
       queryText: string,
       params: unknown[] = []
     ): Promise<QueryResult<T>> {
-      const stmt = db.prepare(queryText);
-      const rows = stmt.all(...params) as T[];
-      return {
-        rows,
-        rowCount: rows.length,
-      };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+
+      try {
+        const stmt = db.prepare(queryText);
+        const rows = stmt.all(...params) as T[];
+        return {
+          rows,
+          rowCount: rows.length,
+        };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
 
     async execute(queryText: string, params: unknown[] = []): Promise<{ rowCount: number }> {
-      const stmt = db.prepare(queryText);
-      const result = stmt.run(...params);
-      return { rowCount: result.changes };
+      const queryId = generateQueryId();
+      tracker.trackQuery(queryId, queryText);
+
+      try {
+        const stmt = db.prepare(queryText);
+        const result = stmt.run(...params);
+        return { rowCount: result.changes };
+      } finally {
+        tracker.untrackQuery(queryId);
+      }
     },
 
     async transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T> {
+      const txQueryId = generateQueryId();
+      tracker.trackQuery(txQueryId, 'TRANSACTION');
+
       const client: TransactionClient = {
         async query<R = Record<string, unknown>>(
           queryText: string,
@@ -107,7 +135,59 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
           db.prepare('ROLLBACK').run();
         }
         throw error;
+      } finally {
+        tracker.untrackQuery(txQueryId);
       }
+    },
+
+    getActiveQueryCount(): number {
+      return tracker.getActiveCount();
+    },
+
+    async drainAndClose(options: DrainOptions = {}): Promise<DrainResult> {
+      const startTime = Date.now();
+
+      draining = true;
+      const initialActive = tracker.getActiveCount();
+
+      options.onProgress?.({
+        phase: 'draining',
+        activeQueries: initialActive,
+        completedQueries: 0,
+        cancelledQueries: 0,
+        elapsedMs: 0,
+      });
+
+      console.log(`[db-engine] Starting graceful shutdown with ${initialActive} active queries`);
+
+      options.onProgress?.({
+        phase: 'closing',
+        activeQueries: 0,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries: 0,
+        elapsedMs: Date.now() - startTime,
+      });
+
+      console.log('[db-engine] Closing database connection');
+      db.close();
+
+      const result: DrainResult = {
+        success: true,
+        completedQueries: tracker.getStats().completed,
+        cancelledQueries: 0,
+        elapsedMs: Date.now() - startTime,
+      };
+
+      options.onProgress?.({
+        phase: 'complete',
+        activeQueries: 0,
+        completedQueries: result.completedQueries,
+        cancelledQueries: result.cancelledQueries,
+        elapsedMs: result.elapsedMs,
+      });
+
+      console.log(`[db-engine] Shutdown complete in ${result.elapsedMs}ms`);
+      return result;
     },
 
     async close(): Promise<void> {
