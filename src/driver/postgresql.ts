@@ -1,5 +1,12 @@
 import postgres, { type ParameterOrJSON } from 'postgres';
 import type { QueryResult } from '../types/index.js';
+import {
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+  type HealthCheckResult,
+  type PoolStats,
+} from './health.js';
+import { createTimeoutPromise } from './retry.js';
 import type { Driver, DriverConfig, TransactionClient } from './types.js';
 
 export function createPostgresDriver(config: DriverConfig): Driver {
@@ -9,6 +16,45 @@ export function createPostgresDriver(config: DriverConfig): Driver {
     connect_timeout: config.connectTimeout ?? 10,
     prepare: true,
   });
+
+  const maxConnections = config.max ?? 20;
+
+  let lastHealthCheck: HealthCheckResult = createHealthCheckResult(true, 0);
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
+
+  async function performHealthCheck(): Promise<HealthCheckResult> {
+    const startTime = Date.now();
+    try {
+      await Promise.race([
+        sql`SELECT 1`,
+        createTimeoutPromise<never>(healthCheckConfig.timeoutMs ?? 5000),
+      ]);
+
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    }
+  }
 
   return {
     dialect: 'postgresql',
@@ -56,7 +102,43 @@ export function createPostgresDriver(config: DriverConfig): Driver {
     },
 
     async close(): Promise<void> {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await sql.end();
+    },
+
+    async healthCheck(): Promise<HealthCheckResult> {
+      return performHealthCheck();
+    },
+
+    getPoolStats(): PoolStats {
+      return {
+        totalConnections: maxConnections,
+        activeConnections: (sql as unknown as { connections?: number }).connections ?? 0,
+        idleConnections:
+          maxConnections - ((sql as unknown as { connections?: number }).connections ?? 0),
+        waitingRequests: 0,
+        maxConnections,
+      };
+    },
+
+    isHealthy(): boolean {
+      return lastHealthCheck.healthy;
+    },
+
+    startHealthChecks(): void {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 30000);
+      performHealthCheck();
+    },
+
+    stopHealthChecks(): void {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     },
   };
 }

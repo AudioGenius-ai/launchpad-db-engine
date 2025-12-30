@@ -6,6 +6,22 @@ export type { Driver, DriverConfig, TransactionClient } from './types.js';
 export type { MongoDriver, MongoDriverConfig, MongoTransactionClient } from './mongodb.js';
 export { createMongoDriver, isMongoDriver } from './mongodb.js';
 
+export type {
+  PoolStats,
+  HealthCheckResult,
+  HealthCheckConfig,
+} from './health.js';
+export {
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+} from './health.js';
+
+export type { PoolMonitorConfig, PoolMonitor } from './pool-monitor.js';
+export { createPoolMonitor } from './pool-monitor.js';
+
+export type { RetryConfig } from './retry.js';
+export { isRetryableError, withRetry, createTimeoutPromise } from './retry.js';
+
 export interface CreateDriverOptions extends DriverConfig {
   dialect?: DialectName;
   database?: string;

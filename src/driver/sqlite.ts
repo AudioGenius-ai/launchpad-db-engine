@@ -1,4 +1,10 @@
 import type { QueryResult } from '../types/index.js';
+import {
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+  type HealthCheckResult,
+  type PoolStats,
+} from './health.js';
 import type { Driver, DriverConfig, TransactionClient } from './types.js';
 
 export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> {
@@ -9,6 +15,40 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
 
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+
+  let lastHealthCheck: HealthCheckResult = createHealthCheckResult(true, 0);
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
+
+  function performHealthCheck(): HealthCheckResult {
+    const startTime = Date.now();
+    try {
+      db.prepare('SELECT 1').get();
+
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    }
+  }
 
   return {
     dialect: 'sqlite',
@@ -71,7 +111,42 @@ export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> 
     },
 
     async close(): Promise<void> {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       db.close();
+    },
+
+    async healthCheck(): Promise<HealthCheckResult> {
+      return performHealthCheck();
+    },
+
+    getPoolStats(): PoolStats {
+      return {
+        totalConnections: 1,
+        activeConnections: lastHealthCheck.healthy ? 1 : 0,
+        idleConnections: 0,
+        waitingRequests: 0,
+        maxConnections: 1,
+      };
+    },
+
+    isHealthy(): boolean {
+      return lastHealthCheck.healthy;
+    },
+
+    startHealthChecks(): void {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 30000);
+      performHealthCheck();
+    },
+
+    stopHealthChecks(): void {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     },
   };
 }

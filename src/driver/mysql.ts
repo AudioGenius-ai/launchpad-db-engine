@@ -1,4 +1,12 @@
+import type { PoolConnection } from 'mysql2/promise';
 import type { QueryResult } from '../types/index.js';
+import {
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+  type HealthCheckResult,
+  type PoolStats,
+} from './health.js';
+import { createTimeoutPromise } from './retry.js';
 import type { Driver, DriverConfig, TransactionClient } from './types.js';
 
 export async function createMySQLDriver(config: DriverConfig): Promise<Driver> {
@@ -11,6 +19,48 @@ export async function createMySQLDriver(config: DriverConfig): Promise<Driver> {
     idleTimeout: (config.idleTimeout ?? 30) * 1000,
     connectTimeout: (config.connectTimeout ?? 10) * 1000,
   });
+
+  const maxConnections = config.max ?? 20;
+
+  let lastHealthCheck: HealthCheckResult = createHealthCheckResult(true, 0);
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
+
+  async function performHealthCheck(): Promise<HealthCheckResult> {
+    const startTime = Date.now();
+    try {
+      const connection = (await Promise.race([
+        pool.getConnection(),
+        createTimeoutPromise<never>(healthCheckConfig.timeoutMs ?? 5000),
+      ])) as PoolConnection;
+
+      await connection.ping();
+      connection.release();
+
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+
+      lastHealthCheck = result;
+      return result;
+    }
+  }
 
   return {
     dialect: 'mysql',
@@ -71,7 +121,50 @@ export async function createMySQLDriver(config: DriverConfig): Promise<Driver> {
     },
 
     async close(): Promise<void> {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await pool.end();
     },
+
+    async healthCheck(): Promise<HealthCheckResult> {
+      return performHealthCheck();
+    },
+
+    getPoolStats(): PoolStats {
+      const poolState = (pool as unknown as { pool?: MySQLPoolState }).pool;
+      return {
+        totalConnections: poolState?._allConnections?.length ?? 0,
+        activeConnections: poolState?._acquiringConnections?.length ?? 0,
+        idleConnections: poolState?._freeConnections?.length ?? 0,
+        waitingRequests: poolState?._connectionQueue?.length ?? 0,
+        maxConnections,
+      };
+    },
+
+    isHealthy(): boolean {
+      return lastHealthCheck.healthy;
+    },
+
+    startHealthChecks(): void {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 30000);
+      performHealthCheck();
+    },
+
+    stopHealthChecks(): void {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
+    },
   };
+}
+
+interface MySQLPoolState {
+  _allConnections?: unknown[];
+  _acquiringConnections?: unknown[];
+  _freeConnections?: unknown[];
+  _connectionQueue?: unknown[];
 }
