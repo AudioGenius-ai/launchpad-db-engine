@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { type BranchManager, createBranchManager } from '../../src/branch/branch-manager.js';
+import {
+  type ConnectionManager,
+  createConnectionManager,
+} from '../../src/branch/connection-manager.js';
 import { createDriver } from '../../src/driver/index.js';
 import type { Driver } from '../../src/driver/types.js';
-import { ConnectionManager, createConnectionManager } from '../../src/branch/connection-manager.js';
-import { BranchManager, createBranchManager } from '../../src/branch/branch-manager.js';
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
+const TEST_DB_URL =
+  process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
 
 describe('ConnectionManager', () => {
   let driver: Driver;
@@ -23,8 +27,7 @@ describe('ConnectionManager', () => {
     for (const slug of createdBranches) {
       try {
         await branchManager.deleteBranch(slug, true);
-      } catch {
-      }
+      } catch {}
     }
     await driver.close();
   });
@@ -42,8 +45,9 @@ describe('ConnectionManager', () => {
     });
 
     it('should throw for non-existent branch', async () => {
-      await expect(connectionManager.switchToBranch('non-existent'))
-        .rejects.toThrow("Branch 'non-existent' not found");
+      await expect(connectionManager.switchToBranch('non-existent')).rejects.toThrow(
+        "Branch 'non-existent' not found"
+      );
     });
   });
 
@@ -81,17 +85,22 @@ describe('ConnectionManager', () => {
       const branch = await branchManager.createBranch({ name: 'isolation-test' });
       createdBranches.push(branch.slug);
 
-      await expect(connectionManager.withBranch(branch.slug, async (client) => {
-        await client.execute(`CREATE TABLE test_rollback (id INT)`);
-        throw new Error('Intentional error');
-      })).rejects.toThrow('Intentional error');
+      await expect(
+        connectionManager.withBranch(branch.slug, async (client) => {
+          await client.execute('CREATE TABLE test_rollback (id INT)');
+          throw new Error('Intentional error');
+        })
+      ).rejects.toThrow('Intentional error');
 
-      const result = await driver.query<{ exists: boolean }>(`
+      const result = await driver.query<{ exists: boolean }>(
+        `
         SELECT EXISTS (
           SELECT 1 FROM information_schema.tables
           WHERE table_schema = $1 AND table_name = 'test_rollback'
         ) as exists
-      `, [branch.schemaName]);
+      `,
+        [branch.schemaName]
+      );
 
       expect(result.rows[0].exists).toBe(false);
     });

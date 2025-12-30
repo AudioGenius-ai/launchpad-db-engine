@@ -8,8 +8,8 @@
     "rules": {
       "recommended": true,
       "complexity": {
-        "noExcessiveCognitiveComplexity": "warn",
-        "noBannedTypes": "warn"
+        "noExcessiveCognitiveComplexity": "off",
+        "noBannedTypes": "off"
       },
       "style": {
         "noNonNullAssertion": "off",

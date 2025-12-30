@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { type BranchManager, createBranchManager } from '../../src/branch/branch-manager.js';
+import type { Branch } from '../../src/branch/types.js';
 import { createDriver } from '../../src/driver/index.js';
 import type { Driver } from '../../src/driver/types.js';
-import { BranchManager, createBranchManager } from '../../src/branch/branch-manager.js';
-import type { Branch } from '../../src/branch/types.js';
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
+const TEST_DB_URL =
+  process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
 
 describe('BranchManager', () => {
   let driver: Driver;
@@ -21,8 +22,7 @@ describe('BranchManager', () => {
     for (const slug of createdBranches) {
       try {
         await manager.deleteBranch(slug, true);
-      } catch {
-      }
+      } catch {}
     }
     await driver.close();
   });
@@ -31,8 +31,7 @@ describe('BranchManager', () => {
     for (const slug of createdBranches) {
       try {
         await manager.deleteBranch(slug, true);
-      } catch {
-      }
+      } catch {}
     }
     createdBranches.length = 0;
   });
@@ -79,8 +78,9 @@ describe('BranchManager', () => {
       const branch = await manager.createBranch({ name: 'duplicate-test' });
       createdBranches.push(branch.slug);
 
-      await expect(manager.createBranch({ name: 'duplicate-test' }))
-        .rejects.toThrow("Branch 'duplicate_test' already exists");
+      await expect(manager.createBranch({ name: 'duplicate-test' })).rejects.toThrow(
+        "Branch 'duplicate_test' already exists"
+      );
     });
 
     it('should set custom auto-delete days', async () => {
@@ -121,18 +121,22 @@ describe('BranchManager', () => {
       const found = await manager.getBranchBySlug(branch.slug);
       expect(found).toBeNull();
 
-      const schemaExists = await driver.query<{ exists: boolean }>(`
+      const schemaExists = await driver.query<{ exists: boolean }>(
+        `
         SELECT EXISTS (
           SELECT 1 FROM information_schema.schemata
           WHERE schema_name = $1
         ) as exists
-      `, [branch.schemaName]);
+      `,
+        [branch.schemaName]
+      );
       expect(schemaExists.rows[0].exists).toBe(false);
     });
 
     it('should throw error for non-existent branch', async () => {
-      await expect(manager.deleteBranch('non-existent'))
-        .rejects.toThrow("Branch 'non-existent' not found");
+      await expect(manager.deleteBranch('non-existent')).rejects.toThrow(
+        "Branch 'non-existent' not found"
+      );
     });
 
     it('should not delete protected branch without force', async () => {
@@ -141,8 +145,7 @@ describe('BranchManager', () => {
 
       await manager.protectBranch(branch.slug);
 
-      await expect(manager.deleteBranch(branch.slug))
-        .rejects.toThrow('is protected');
+      await expect(manager.deleteBranch(branch.slug)).rejects.toThrow('is protected');
     });
 
     it('should delete protected branch with force', async () => {
@@ -240,11 +243,14 @@ describe('BranchManager', () => {
     it('should delete branches inactive for N days', async () => {
       const branch = await manager.createBranch({ name: 'old-branch' });
 
-      await driver.execute(`
+      await driver.execute(
+        `
         UPDATE lp_branch_metadata
         SET last_accessed_at = NOW() - INTERVAL '10 days'
         WHERE id = $1
-      `, [branch.id]);
+      `,
+        [branch.id]
+      );
 
       const result = await manager.cleanupStaleBranches({ maxAgeDays: 7 });
 
@@ -256,11 +262,14 @@ describe('BranchManager', () => {
       createdBranches.push(branch.slug);
 
       await manager.protectBranch(branch.slug);
-      await driver.execute(`
+      await driver.execute(
+        `
         UPDATE lp_branch_metadata
         SET last_accessed_at = NOW() - INTERVAL '30 days'
         WHERE id = $1
-      `, [branch.id]);
+      `,
+        [branch.id]
+      );
 
       const result = await manager.cleanupStaleBranches({ maxAgeDays: 7 });
 
@@ -271,11 +280,14 @@ describe('BranchManager', () => {
       const branch = await manager.createBranch({ name: 'dry-run-test' });
       createdBranches.push(branch.slug);
 
-      await driver.execute(`
+      await driver.execute(
+        `
         UPDATE lp_branch_metadata
         SET last_accessed_at = NOW() - INTERVAL '10 days'
         WHERE id = $1
-      `, [branch.id]);
+      `,
+        [branch.id]
+      );
 
       const result = await manager.cleanupStaleBranches({
         maxAgeDays: 7,

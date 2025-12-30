@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { SchemaDiffer } from '../../src/branch/schema-differ.js';
 import { createDriver } from '../../src/driver/index.js';
 import type { Driver } from '../../src/driver/types.js';
-import { SchemaDiffer } from '../../src/branch/schema-differ.js';
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
+const TEST_DB_URL =
+  process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
 
 describe('SchemaDiffer', () => {
   let driver: Driver;
@@ -19,8 +20,7 @@ describe('SchemaDiffer', () => {
     for (const schema of testSchemas) {
       try {
         await driver.execute(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-      } catch {
-      }
+      } catch {}
     }
     await driver.close();
   });
@@ -90,7 +90,9 @@ describe('SchemaDiffer', () => {
       const schema1 = await createTestSchema('added_col1');
       const schema2 = await createTestSchema('added_col2');
 
-      await driver.execute(`CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`);
+      await driver.execute(
+        `CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`
+      );
       await driver.execute(`CREATE TABLE ${schema2}.users (id SERIAL PRIMARY KEY, name TEXT)`);
 
       const diff = await differ.diff(schema1, schema2);
@@ -170,7 +172,9 @@ describe('SchemaDiffer', () => {
       const schema1 = await createTestSchema('conflict1');
       const schema2 = await createTestSchema('conflict2');
 
-      await driver.execute(`CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, status VARCHAR(20))`);
+      await driver.execute(
+        `CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, status VARCHAR(20))`
+      );
       await driver.execute(`CREATE TABLE ${schema2}.users (id SERIAL PRIMARY KEY, status INTEGER)`);
 
       const diff = await differ.diff(schema1, schema2);
@@ -188,26 +192,34 @@ describe('SchemaDiffer', () => {
       const schema1 = await createTestSchema('sql_gen1');
       const schema2 = await createTestSchema('sql_gen2');
 
-      await driver.execute(`CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`);
+      await driver.execute(
+        `CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`
+      );
       await driver.execute(`CREATE TABLE ${schema2}.users (id SERIAL PRIMARY KEY, name TEXT)`);
 
       const diff = await differ.diff(schema1, schema2);
 
       expect(diff.forwardSql.length).toBeGreaterThan(0);
-      expect(diff.forwardSql.some((sql) => sql.includes('ADD COLUMN') && sql.includes('email'))).toBe(true);
+      expect(
+        diff.forwardSql.some((sql) => sql.includes('ADD COLUMN') && sql.includes('email'))
+      ).toBe(true);
     });
 
     it('should generate reverse SQL for changes', async () => {
       const schema1 = await createTestSchema('reverse_sql1');
       const schema2 = await createTestSchema('reverse_sql2');
 
-      await driver.execute(`CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`);
+      await driver.execute(
+        `CREATE TABLE ${schema1}.users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)`
+      );
       await driver.execute(`CREATE TABLE ${schema2}.users (id SERIAL PRIMARY KEY, name TEXT)`);
 
       const diff = await differ.diff(schema1, schema2);
 
       expect(diff.reverseSql.length).toBeGreaterThan(0);
-      expect(diff.reverseSql.some((sql) => sql.includes('DROP COLUMN') && sql.includes('email'))).toBe(true);
+      expect(
+        diff.reverseSql.some((sql) => sql.includes('DROP COLUMN') && sql.includes('email'))
+      ).toBe(true);
     });
   });
 });
