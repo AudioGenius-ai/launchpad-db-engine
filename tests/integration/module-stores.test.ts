@@ -118,33 +118,41 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     });
 
     it('should list files in a bucket', async () => {
-      // Upload multiple files
+      // Upload multiple files (one at a time since values() expects a single object)
       await db
         .table(storageTable, tenant1)
         .insert()
-        .values([
-          {
-            bucket: 'images',
-            path: '/photo1.jpg',
-            filename: 'photo1.jpg',
-            content_type: 'image/jpeg',
-            size_bytes: 100,
-          },
-          {
-            bucket: 'images',
-            path: '/photo2.jpg',
-            filename: 'photo2.jpg',
-            content_type: 'image/jpeg',
-            size_bytes: 200,
-          },
-          {
-            bucket: 'documents',
-            path: '/doc.pdf',
-            filename: 'doc.pdf',
-            content_type: 'application/pdf',
-            size_bytes: 300,
-          },
-        ])
+        .values({
+          bucket: 'images',
+          path: '/photo1.jpg',
+          filename: 'photo1.jpg',
+          content_type: 'image/jpeg',
+          size_bytes: 100,
+        })
+        .execute();
+
+      await db
+        .table(storageTable, tenant1)
+        .insert()
+        .values({
+          bucket: 'images',
+          path: '/photo2.jpg',
+          filename: 'photo2.jpg',
+          content_type: 'image/jpeg',
+          size_bytes: 200,
+        })
+        .execute();
+
+      await db
+        .table(storageTable, tenant1)
+        .insert()
+        .values({
+          bucket: 'documents',
+          path: '/doc.pdf',
+          filename: 'doc.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 300,
+        })
         .execute();
 
       const imageFiles = await db
@@ -255,15 +263,26 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
     it('should query executions by status', async () => {
       const workflowId = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22';
 
+      // Insert executions one at a time since values() expects a single object
       await db
         .table(workflowTable, tenant1)
         .insert()
-        .values([
-          { workflow_id: workflowId, status: 'completed', input: {} },
-          { workflow_id: workflowId, status: 'completed', input: {} },
-          { workflow_id: workflowId, status: 'failed', input: {}, error: 'Timeout' },
-          { workflow_id: workflowId, status: 'running', input: {} },
-        ])
+        .values({ workflow_id: workflowId, status: 'completed', input: {} })
+        .execute();
+      await db
+        .table(workflowTable, tenant1)
+        .insert()
+        .values({ workflow_id: workflowId, status: 'completed', input: {} })
+        .execute();
+      await db
+        .table(workflowTable, tenant1)
+        .insert()
+        .values({ workflow_id: workflowId, status: 'failed', input: {}, error: 'Timeout' })
+        .execute();
+      await db
+        .table(workflowTable, tenant1)
+        .insert()
+        .values({ workflow_id: workflowId, status: 'running', input: {} })
         .execute();
 
       const completed = await db
