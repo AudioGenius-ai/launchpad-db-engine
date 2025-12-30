@@ -15,7 +15,10 @@ N/A - This is a database engine library, not an HTTP service.
 | `query<T>(sql, params?)` | Execute SQL query and return rows | `Promise<QueryResult<T>>` |
 | `execute(sql, params?)` | Execute SQL statement (INSERT/UPDATE/DELETE) | `Promise<{ rowCount: number }>` |
 | `transaction<T>(fn)` | Execute operations in a transaction | `Promise<T>` |
-| `close()` | Close all connections | `Promise<void>` |
+| `close()` | Close all connections immediately | `Promise<void>` |
+| `drainAndClose(options?)` | Gracefully shutdown waiting for active queries | `Promise<DrainResult>` |
+| `getActiveQueryCount()` | Get number of currently active queries | `number` |
+| `isDraining` | Property indicating if driver is draining | `boolean` |
 
 ### Health Check Methods (TASK-357)
 
@@ -50,7 +53,82 @@ N/A - This is a database engine library, not an HTTP service.
 |----------|---------|------------|
 | `createPoolMonitor(getStats, config?)` | Create pool exhaustion monitor | `() => PoolStats, PoolMonitorConfig?` |
 
+### Query Tracker (`src/driver/query-tracker.ts`) - TASK-363
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| `trackQuery(id, query, backendPid?)` | Track a new query as active | `void` |
+| `untrackQuery(id)` | Mark query as completed | `void` |
+| `getActiveCount()` | Get count of active queries | `number` |
+| `getActiveQueries()` | Get array of active query info | `QueryInfo[]` |
+| `startDrain(timeoutMs)` | Begin drain mode, wait for queries | `Promise<{ timedOut: boolean }>` |
+| `markCancelled(id)` | Mark query as cancelled (not completed) | `void` |
+| `getStats()` | Get completed/cancelled/active counts | `object` |
+| `isDraining()` | Check if in drain mode | `boolean` |
+| `reset()` | Reset tracker state | `void` |
+
+### Signal Handler (`src/driver/signal-handler.ts`) - TASK-363
+
+| Function | Purpose | Parameters |
+|----------|---------|------------|
+| `registerSignalHandlers(driver, options?)` | Register SIGTERM/SIGINT handlers for graceful shutdown | `Driver, SignalHandlerOptions?` |
+
 ## Types
+
+### DrainOptions (TASK-363)
+```typescript
+interface DrainOptions {
+  timeout?: number;                              // Default: 30000 (30s)
+  onProgress?: (progress: DrainProgress) => void;
+  forceCancelOnTimeout?: boolean;                // Default: true
+}
+```
+
+### DrainProgress (TASK-363)
+```typescript
+type DrainPhase = 'draining' | 'cancelling' | 'closing' | 'complete';
+
+interface DrainProgress {
+  phase: DrainPhase;
+  activeQueries: number;
+  completedQueries: number;
+  cancelledQueries: number;
+  elapsedMs: number;
+}
+```
+
+### DrainResult (TASK-363)
+```typescript
+interface DrainResult {
+  success: boolean;
+  completedQueries: number;
+  cancelledQueries: number;
+  elapsedMs: number;
+  error?: Error;
+}
+```
+
+### QueryInfo (TASK-363)
+```typescript
+interface QueryInfo {
+  id: string;
+  query: string;           // Truncated to 200 chars
+  startedAt: Date;
+  backendPid?: number;     // PostgreSQL backend process ID
+}
+```
+
+### SignalHandlerOptions (TASK-363)
+```typescript
+interface SignalHandlerOptions {
+  timeout?: number;              // Default: 30000 (30s)
+  exitCodeSuccess?: number;      // Default: 0
+  exitCodeForced?: number;       // Default: 1 (when queries cancelled)
+  autoExit?: boolean;            // Default: true
+  onShutdownStart?: () => void;
+  onShutdownComplete?: (result: DrainResult) => void;
+}
+```
 
 ### HealthCheckResult
 ```typescript
@@ -107,6 +185,31 @@ interface RetryConfig {
 
 ## Patterns
 
+### Graceful Shutdown Pattern (TASK-363)
+All drivers implement graceful shutdown with active query tracking:
+1. **Track**: All queries are tracked via `QueryTracker` with unique IDs
+2. **Drain**: `drainAndClose()` waits for active queries to complete
+3. **Cancel**: If timeout exceeded, remaining queries are cancelled:
+   - **PostgreSQL**: `SELECT pg_cancel_backend(pid)`
+   - **MySQL**: `KILL QUERY <connection_id>`
+   - **SQLite**: No cancellation needed (synchronous)
+   - **MongoDB**: Session abort
+4. **Close**: Connection pool is closed
+
+Usage with signal handlers:
+```typescript
+import { createDriver, registerSignalHandlers } from '@launchpad/db-engine';
+
+const driver = await createDriver({ connectionString: '...' });
+
+// Register handlers - automatically calls drainAndClose on SIGTERM/SIGINT
+const unregister = registerSignalHandlers(driver, {
+  timeout: 30000,
+  onShutdownStart: () => console.log('Shutting down...'),
+  onShutdownComplete: (result) => console.log(`Done in ${result.elapsedMs}ms`),
+});
+```
+
 ### Connection Health Check Pattern
 All drivers implement health checks using a simple ping query:
 - **PostgreSQL**: `SELECT 1` via postgres.js
@@ -149,6 +252,16 @@ Pool monitor tracks utilization and logs warnings/critical alerts:
 **Context**: Each database driver library exposes pool metrics differently.
 **Decision**: Each driver implements `getPoolStats()` using library-specific APIs.
 **Consequence**: PostgreSQL (postgres.js) has limited pool visibility compared to MySQL (mysql2).
+
+### ADR-004: Graceful Shutdown with Query Tracking (TASK-363)
+**Context**: `close()` immediately terminates connections, potentially failing in-flight queries.
+**Decision**: Add `drainAndClose()` that waits for active queries before closing, with database-specific cancellation.
+**Consequence**: Production deployments can gracefully handle SIGTERM without losing query results. Adds slight overhead from query tracking.
+
+### ADR-005: Centralized QueryTracker (TASK-363)
+**Context**: Each driver needs to track active queries for graceful shutdown.
+**Decision**: Create shared `QueryTracker` class used by all drivers.
+**Consequence**: Consistent tracking behavior across PostgreSQL, MySQL, SQLite, MongoDB. Rejects new queries once draining starts.
 
 ## Test Fixtures
 
@@ -199,6 +312,21 @@ Pool monitor tracks utilization and logs warnings/critical alerts:
 ```
 
 ## Recent Changes
+
+- **[TASK-363]**: Implemented graceful shutdown for database connections
+  - Added `drainAndClose(options?)` method to Driver interface
+  - Added `getActiveQueryCount()` method and `isDraining` property
+  - Created `QueryTracker` class (`src/driver/query-tracker.ts`) for tracking active queries
+  - Created `registerSignalHandlers()` utility (`src/driver/signal-handler.ts`) for SIGTERM/SIGINT handling
+  - New types: `DrainOptions`, `DrainProgress`, `DrainResult`, `DrainPhase`, `QueryInfo`, `SignalHandlerOptions`
+  - All drivers (PostgreSQL, MySQL, SQLite, MongoDB) implement graceful shutdown
+  - Database-specific query cancellation:
+    - PostgreSQL: `pg_cancel_backend(pid)`
+    - MySQL: `KILL QUERY <id>`
+    - SQLite: No cancellation (synchronous)
+    - MongoDB: Session abort
+  - Added 40 unit tests (17 QueryTracker, 13 signal handler, 10 mock integration)
+  - PR #21: https://github.com/AudioGenius-ai/launchpad-db-engine/pull/21
 
 - **[TASK-362]**: Added comprehensive edge case test coverage for query builder and compiler
   - Created `tests/fixtures/special-characters.ts` with SQL injection payloads, unicode edge cases, and boundary values
