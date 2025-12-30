@@ -4,7 +4,7 @@ import { createDriver } from '../../src/driver/index.js';
 import type { Driver } from '../../src/driver/types.js';
 
 const TEST_DB_URL =
-  process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
+  process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/launchpad_test';
 
 describe('SchemaDiffer', () => {
   let driver: Driver;
