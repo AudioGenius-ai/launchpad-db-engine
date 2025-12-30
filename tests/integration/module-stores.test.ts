@@ -104,7 +104,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       expect(tenant1Files).toHaveLength(1);
-      expect(tenant1Files[0].size_bytes).toBe(1024000);
+      expect(Number(tenant1Files[0].size_bytes)).toBe(1024000);
 
       // Tenant 2 can only see their file
       const tenant2Files = await db
@@ -114,7 +114,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Module Store Integration Tests', () 
         .execute();
 
       expect(tenant2Files).toHaveLength(1);
-      expect(tenant2Files[0].size_bytes).toBe(2048000);
+      expect(Number(tenant2Files[0].size_bytes)).toBe(2048000);
     });
 
     it('should list files in a bucket', async () => {
