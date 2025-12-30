@@ -286,7 +286,7 @@ describe('SQL Compiler Edge Cases', () => {
       const { sql, params } = compiler.compile(ast, mockCtx);
 
       expect(sql).toContain('LIKE $3');
-      expect(params[2]).toBe("%test'%--%" );
+      expect(params[2]).toBe("%test'%--%");
     });
   });
 

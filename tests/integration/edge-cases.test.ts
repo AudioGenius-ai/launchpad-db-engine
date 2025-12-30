@@ -266,7 +266,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Integration Edge Cases', () => {
       );
 
       const tableCheck = await driver.query(
-        `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`,
+        'SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)',
         [testTableName]
       );
       expect(tableCheck.rows[0].exists).toBe(true);

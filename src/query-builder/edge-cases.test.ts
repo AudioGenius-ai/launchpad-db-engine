@@ -45,7 +45,10 @@ describe('Query Builder Edge Cases', () => {
         verified: boolean;
       }>(driver, compiler, 'users', mockCtx);
 
-      builder.where('status', '=', 'active').where('role', '=', 'admin').orWhere('verified', '=', true);
+      builder
+        .where('status', '=', 'active')
+        .where('role', '=', 'admin')
+        .orWhere('verified', '=', true);
 
       builder.toSQL();
       const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -343,7 +346,12 @@ describe('Query Builder Edge Cases', () => {
     });
 
     it('should handle single column GROUP BY', () => {
-      const builder = new SelectBuilder<{ category: string }>(driver, compiler, 'products', mockCtx);
+      const builder = new SelectBuilder<{ category: string }>(
+        driver,
+        compiler,
+        'products',
+        mockCtx
+      );
 
       builder.groupBy('category');
 
@@ -491,12 +499,12 @@ describe('Query Builder Edge Cases', () => {
     });
 
     it('should handle onConflict with specific update columns', () => {
-      const builder = new InsertBuilder<{ id: string; email: string; name: string; status: string }>(
-        driver,
-        compiler,
-        'users',
-        mockCtx
-      );
+      const builder = new InsertBuilder<{
+        id: string;
+        email: string;
+        name: string;
+        status: string;
+      }>(driver, compiler, 'users', mockCtx);
 
       builder
         .valuesMany([{ email: 'user@example.com', name: 'User', status: 'active' }])
@@ -516,7 +524,9 @@ describe('Query Builder Edge Cases', () => {
         name: string;
       }>(driver, compiler, 'users', mockCtx);
 
-      builder.values({ email: 'user@example.com', name: 'User' }).onConflict(['app_id', 'email'], 'update');
+      builder
+        .values({ email: 'user@example.com', name: 'User' })
+        .onConflict(['app_id', 'email'], 'update');
 
       builder.toSQL();
       const callArg = (compiler.compile as ReturnType<typeof vi.fn>).mock.calls[0][0];
