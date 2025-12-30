@@ -157,70 +157,85 @@ export class SchemaDiffer {
 
   private diffColumns(source: SchemaInfo, target: SchemaInfo): ColumnDiff[] {
     const diffs: ColumnDiff[] = [];
-
     const sourceTableNames = new Set(source.tables.map((t) => t.table_name));
     const targetTableNames = new Set(target.tables.map((t) => t.table_name));
-
     const commonTables = [...sourceTableNames].filter((t) => targetTableNames.has(t));
 
     for (const tableName of commonTables) {
       const sourceCols = source.columns.filter((c) => c.table_name === tableName);
       const targetCols = target.columns.filter((c) => c.table_name === tableName);
-
       const sourceColMap = new Map(sourceCols.map((c) => [c.column_name, c]));
       const targetColMap = new Map(targetCols.map((c) => [c.column_name, c]));
 
-      for (const col of sourceCols) {
-        if (!targetColMap.has(col.column_name)) {
-          diffs.push({
-            tableName,
-            columnName: col.column_name,
-            action: 'added',
-            sourceType: this.getColumnType(col),
-            sourceNullable: col.is_nullable === 'YES',
-            sourceDefault: col.column_default ?? undefined,
-            isBreaking: false,
-          });
-        }
-      }
-
-      for (const col of targetCols) {
-        if (!sourceColMap.has(col.column_name)) {
-          diffs.push({
-            tableName,
-            columnName: col.column_name,
-            action: 'removed',
-            targetType: this.getColumnType(col),
-            targetNullable: col.is_nullable === 'YES',
-            targetDefault: col.column_default ?? undefined,
-            isBreaking: true,
-          });
-        }
-      }
-
-      for (const col of sourceCols) {
-        const targetCol = targetColMap.get(col.column_name);
-        if (targetCol && this.hasColumnChanges(col, targetCol)) {
-          const sourceType = this.getColumnType(col);
-          const targetType = this.getColumnType(targetCol);
-          const isBreaking = this.isBreakingTypeChange(sourceType, targetType);
-
-          diffs.push({
-            tableName,
-            columnName: col.column_name,
-            action: 'modified',
-            sourceType,
-            targetType,
-            sourceNullable: col.is_nullable === 'YES',
-            targetNullable: targetCol.is_nullable === 'YES',
-            sourceDefault: col.column_default ?? undefined,
-            targetDefault: targetCol.column_default ?? undefined,
-            isBreaking,
-          });
-        }
-      }
+      diffs.push(...this.findAddedColumns(tableName, sourceCols, targetColMap));
+      diffs.push(...this.findRemovedColumns(tableName, targetCols, sourceColMap));
+      diffs.push(...this.findModifiedColumns(tableName, sourceCols, targetColMap));
     }
 
+    return diffs;
+  }
+
+  private findAddedColumns(
+    tableName: string,
+    sourceCols: SchemaColumnInfo[],
+    targetColMap: Map<string, SchemaColumnInfo>
+  ): ColumnDiff[] {
+    return sourceCols
+      .filter((col) => !targetColMap.has(col.column_name))
+      .map((col) => ({
+        tableName,
+        columnName: col.column_name,
+        action: 'added' as const,
+        sourceType: this.getColumnType(col),
+        sourceNullable: col.is_nullable === 'YES',
+        sourceDefault: col.column_default ?? undefined,
+        isBreaking: false,
+      }));
+  }
+
+  private findRemovedColumns(
+    tableName: string,
+    targetCols: SchemaColumnInfo[],
+    sourceColMap: Map<string, SchemaColumnInfo>
+  ): ColumnDiff[] {
+    return targetCols
+      .filter((col) => !sourceColMap.has(col.column_name))
+      .map((col) => ({
+        tableName,
+        columnName: col.column_name,
+        action: 'removed' as const,
+        targetType: this.getColumnType(col),
+        targetNullable: col.is_nullable === 'YES',
+        targetDefault: col.column_default ?? undefined,
+        isBreaking: true,
+      }));
+  }
+
+  private findModifiedColumns(
+    tableName: string,
+    sourceCols: SchemaColumnInfo[],
+    targetColMap: Map<string, SchemaColumnInfo>
+  ): ColumnDiff[] {
+    const diffs: ColumnDiff[] = [];
+    for (const col of sourceCols) {
+      const targetCol = targetColMap.get(col.column_name);
+      if (targetCol && this.hasColumnChanges(col, targetCol)) {
+        const sourceType = this.getColumnType(col);
+        const targetType = this.getColumnType(targetCol);
+        diffs.push({
+          tableName,
+          columnName: col.column_name,
+          action: 'modified',
+          sourceType,
+          targetType,
+          sourceNullable: col.is_nullable === 'YES',
+          targetNullable: targetCol.is_nullable === 'YES',
+          sourceDefault: col.column_default ?? undefined,
+          targetDefault: targetCol.column_default ?? undefined,
+          isBreaking: this.isBreakingTypeChange(sourceType, targetType),
+        });
+      }
+    }
     return diffs;
   }
 
@@ -351,83 +366,134 @@ export class SchemaDiffer {
     constraints: ConstraintDiff[],
     direction: 'forward' | 'reverse'
   ): string[] {
-    const sql: string[] = [];
-
     const schema = direction === 'forward' ? targetSchema : sourceSchema;
+    const ctx = { sourceSchema, targetSchema, schema, direction };
 
+    return [
+      ...this.generateTableSql(tables, ctx),
+      ...this.generateColumnSql(columns, ctx),
+      ...this.generateIndexSql(indexes, ctx),
+      ...this.generateConstraintSql(constraints, ctx),
+    ];
+  }
+
+  private generateTableSql(
+    tables: TableDiff[],
+    ctx: { sourceSchema: string; schema: string; direction: 'forward' | 'reverse' }
+  ): string[] {
+    const sql: string[] = [];
     for (const table of tables) {
-      if (
-        (direction === 'forward' && table.action === 'added') ||
-        (direction === 'reverse' && table.action === 'removed')
-      ) {
-        if (table.sourceDefinition) {
-          sql.push(table.sourceDefinition.replace(sourceSchema, schema));
-        }
-      } else if (
-        (direction === 'forward' && table.action === 'removed') ||
-        (direction === 'reverse' && table.action === 'added')
-      ) {
-        sql.push(`DROP TABLE IF EXISTS "${schema}"."${table.name}" CASCADE`);
+      const isCreate =
+        (ctx.direction === 'forward' && table.action === 'added') ||
+        (ctx.direction === 'reverse' && table.action === 'removed');
+      const isDrop =
+        (ctx.direction === 'forward' && table.action === 'removed') ||
+        (ctx.direction === 'reverse' && table.action === 'added');
+
+      if (isCreate && table.sourceDefinition) {
+        sql.push(table.sourceDefinition.replace(ctx.sourceSchema, ctx.schema));
+      } else if (isDrop) {
+        sql.push(`DROP TABLE IF EXISTS "${ctx.schema}"."${table.name}" CASCADE`);
       }
     }
-
-    for (const col of columns) {
-      const tableName = `"${schema}"."${col.tableName}"`;
-
-      if (
-        (direction === 'forward' && col.action === 'added') ||
-        (direction === 'reverse' && col.action === 'removed')
-      ) {
-        const type = direction === 'forward' ? col.sourceType : col.targetType;
-        sql.push(`ALTER TABLE ${tableName} ADD COLUMN "${col.columnName}" ${type}`);
-      } else if (
-        (direction === 'forward' && col.action === 'removed') ||
-        (direction === 'reverse' && col.action === 'added')
-      ) {
-        sql.push(`ALTER TABLE ${tableName} DROP COLUMN IF EXISTS "${col.columnName}"`);
-      } else if (col.action === 'modified') {
-        const type = direction === 'forward' ? col.sourceType : col.targetType;
-        sql.push(`ALTER TABLE ${tableName} ALTER COLUMN "${col.columnName}" TYPE ${type}`);
-      }
-    }
-
-    for (const idx of indexes) {
-      if (
-        (direction === 'forward' && idx.action === 'added') ||
-        (direction === 'reverse' && idx.action === 'removed')
-      ) {
-        const def = direction === 'forward' ? idx.sourceDefinition : idx.targetDefinition;
-        if (def) {
-          sql.push(def.replace(sourceSchema, schema).replace(targetSchema, schema));
-        }
-      } else if (
-        (direction === 'forward' && idx.action === 'removed') ||
-        (direction === 'reverse' && idx.action === 'added')
-      ) {
-        sql.push(`DROP INDEX IF EXISTS "${schema}"."${idx.indexName}"`);
-      }
-    }
-
-    for (const con of constraints) {
-      const tableName = `"${schema}"."${con.tableName}"`;
-
-      if (
-        (direction === 'forward' && con.action === 'added') ||
-        (direction === 'reverse' && con.action === 'removed')
-      ) {
-        const def = direction === 'forward' ? con.sourceDefinition : con.targetDefinition;
-        if (def) {
-          sql.push(`ALTER TABLE ${tableName} ADD ${def}`);
-        }
-      } else if (
-        (direction === 'forward' && con.action === 'removed') ||
-        (direction === 'reverse' && con.action === 'added')
-      ) {
-        sql.push(`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS "${con.constraintName}"`);
-      }
-    }
-
     return sql;
+  }
+
+  private shouldCreate(action: string, direction: 'forward' | 'reverse'): boolean {
+    return (
+      (direction === 'forward' && action === 'added') ||
+      (direction === 'reverse' && action === 'removed')
+    );
+  }
+
+  private shouldDrop(action: string, direction: 'forward' | 'reverse'): boolean {
+    return (
+      (direction === 'forward' && action === 'removed') ||
+      (direction === 'reverse' && action === 'added')
+    );
+  }
+
+  private generateColumnSql(
+    columns: ColumnDiff[],
+    ctx: { schema: string; direction: 'forward' | 'reverse' }
+  ): string[] {
+    return columns.flatMap((col) => this.generateSingleColumnSql(col, ctx));
+  }
+
+  private generateSingleColumnSql(
+    col: ColumnDiff,
+    ctx: { schema: string; direction: 'forward' | 'reverse' }
+  ): string[] {
+    const tableName = `"${ctx.schema}"."${col.tableName}"`;
+    if (this.shouldCreate(col.action, ctx.direction)) {
+      const type = ctx.direction === 'forward' ? col.sourceType : col.targetType;
+      return [`ALTER TABLE ${tableName} ADD COLUMN "${col.columnName}" ${type}`];
+    }
+    if (this.shouldDrop(col.action, ctx.direction)) {
+      return [`ALTER TABLE ${tableName} DROP COLUMN IF EXISTS "${col.columnName}"`];
+    }
+    if (col.action === 'modified') {
+      const type = ctx.direction === 'forward' ? col.sourceType : col.targetType;
+      return [`ALTER TABLE ${tableName} ALTER COLUMN "${col.columnName}" TYPE ${type}`];
+    }
+    return [];
+  }
+
+  private generateIndexSql(
+    indexes: IndexDiff[],
+    ctx: {
+      sourceSchema: string;
+      targetSchema: string;
+      schema: string;
+      direction: 'forward' | 'reverse';
+    }
+  ): string[] {
+    return indexes.flatMap((idx) => this.generateSingleIndexSql(idx, ctx));
+  }
+
+  private generateSingleIndexSql(
+    idx: IndexDiff,
+    ctx: {
+      sourceSchema: string;
+      targetSchema: string;
+      schema: string;
+      direction: 'forward' | 'reverse';
+    }
+  ): string[] {
+    if (this.shouldCreate(idx.action, ctx.direction)) {
+      const def = ctx.direction === 'forward' ? idx.sourceDefinition : idx.targetDefinition;
+      if (def) {
+        return [def.replace(ctx.sourceSchema, ctx.schema).replace(ctx.targetSchema, ctx.schema)];
+      }
+    }
+    if (this.shouldDrop(idx.action, ctx.direction)) {
+      return [`DROP INDEX IF EXISTS "${ctx.schema}"."${idx.indexName}"`];
+    }
+    return [];
+  }
+
+  private generateConstraintSql(
+    constraints: ConstraintDiff[],
+    ctx: { schema: string; direction: 'forward' | 'reverse' }
+  ): string[] {
+    return constraints.flatMap((con) => this.generateSingleConstraintSql(con, ctx));
+  }
+
+  private generateSingleConstraintSql(
+    con: ConstraintDiff,
+    ctx: { schema: string; direction: 'forward' | 'reverse' }
+  ): string[] {
+    const tableName = `"${ctx.schema}"."${con.tableName}"`;
+    if (this.shouldCreate(con.action, ctx.direction)) {
+      const def = ctx.direction === 'forward' ? con.sourceDefinition : con.targetDefinition;
+      if (def) {
+        return [`ALTER TABLE ${tableName} ADD ${def}`];
+      }
+    }
+    if (this.shouldDrop(con.action, ctx.direction)) {
+      return [`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS "${con.constraintName}"`];
+    }
+    return [];
   }
 
   private getTableDefinition(tableName: string, schema: SchemaInfo): string {
