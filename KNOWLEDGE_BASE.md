@@ -150,7 +150,83 @@ Pool monitor tracks utilization and logs warnings/critical alerts:
 **Decision**: Each driver implements `getPoolStats()` using library-specific APIs.
 **Consequence**: PostgreSQL (postgres.js) has limited pool visibility compared to MySQL (mysql2).
 
+## Test Fixtures
+
+### SQL Injection Prevention (`tests/fixtures/special-characters.ts`)
+
+| Export | Purpose |
+|--------|---------|
+| `SQL_INJECTION_PAYLOADS` | 15 common SQL injection attack patterns for testing |
+| `UNICODE_EDGE_CASES` | 12 unicode edge cases (NULL byte, BOM, emoji, CJK, etc.) |
+| `SPECIAL_SQL_CHARACTERS` | 13 special SQL characters (quotes, semicolons, comments, etc.) |
+| `LARGE_DATASET_GENERATORS` | Functions to generate test data (IDs, strings, rows) |
+| `BOUNDARY_VALUES` | Integer and string boundary values for edge case testing |
+
+### LARGE_DATASET_GENERATORS
+```typescript
+{
+  generateIds(count: number): number[]        // [1, 2, 3, ...]
+  generateStrings(count: number): string[]    // ["item_0", "item_1", ...]
+  generateRows(count: number): Array<{name, email}>
+  generateRowsWithId(count: number): Array<{id, name, value}>
+}
+```
+
+### BOUNDARY_VALUES
+```typescript
+{
+  integers: {
+    maxInt32: 2147483647,
+    minInt32: -2147483648,
+    maxBigInt: BigInt('9223372036854775807'),
+    minBigInt: BigInt('-9223372036854775808'),
+    zero: 0,
+    negativeOne: -1
+  },
+  strings: {
+    empty: '',
+    singleChar: 'a',
+    maxLength: 'a'.repeat(10000),
+    whitespaceOnly: '   ',
+    unicode: '🎉🔥💯'
+  },
+  arrays: {
+    empty: [],
+    single: [1],
+    large: Array.from({length: 1000}, (_, i) => i)
+  }
+}
+```
+
 ## Recent Changes
+
+- **[TASK-362]**: Added comprehensive edge case test coverage for query builder and compiler
+  - Created `tests/fixtures/special-characters.ts` with SQL injection payloads, unicode edge cases, and boundary values
+  - Added 32 query builder unit tests (`src/query-builder/edge-cases.test.ts`):
+    - Complex nested WHERE conditions (5 tests)
+    - JOIN with multiple aliases (6 tests)
+    - GROUP BY + HAVING edge cases (6 tests)
+    - Batch insert edge cases (10 tests)
+    - Update/Delete builder edge cases (5 tests)
+  - Added 74 compiler unit tests (`src/compiler/edge-cases.test.ts`):
+    - Large IN clause compilation (6 tests)
+    - SQL injection prevention (15+ attack patterns)
+    - Unicode edge cases (12 characters)
+    - Special SQL characters (10+ characters)
+    - Boundary values (7 tests)
+    - Complex query compilation (5 tests)
+    - Insert many compilation (5 tests)
+    - MySQL/SQLite dialect edge cases (6 tests)
+    - Error handling edge cases (4 tests)
+    - Tenant injection edge cases (2 tests)
+  - Added 27 integration tests (`tests/integration/edge-cases.test.ts`):
+    - Transaction rollback scenarios (6 tests)
+    - Large dataset operations (4 tests)
+    - SQL injection prevention integration (3 tests)
+    - Unicode and special characters (3 tests)
+    - Boundary value tests (7 tests)
+    - Complex query scenarios (5 tests)
+  - Total: 133 new tests enhancing security and edge case coverage
 
 - **[TASK-357]**: Implemented connection pool health checks for all database drivers
   - Added `healthCheck()`, `getPoolStats()`, `isHealthy()`, `startHealthChecks()`, `stopHealthChecks()` to Driver interface
