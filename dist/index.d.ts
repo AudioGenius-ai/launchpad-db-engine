@@ -94,7 +94,7 @@ interface MigrationFile {
     templateKey?: string;
     moduleName?: string;
 }
-interface MigrationRecord {
+interface MigrationRecord$1 {
     version: number;
     name: string;
     scope: 'core' | 'template';
@@ -114,7 +114,7 @@ interface MigrationResult {
     duration: number;
 }
 interface MigrationStatus {
-    applied: MigrationRecord[];
+    applied: MigrationRecord$1[];
     pending: MigrationFile[];
     current: number | null;
 }
@@ -687,6 +687,308 @@ declare class TenantContextError extends Error {
 declare function validateTenantContext(ctx: TenantContext | undefined, tableName: string): void;
 declare function validateTenantContextOrWarn(ctx: TenantContext | undefined, tableName: string): void;
 
+type BranchStatus = 'active' | 'protected' | 'stale' | 'deleting';
+interface Branch {
+    id: string;
+    name: string;
+    slug: string;
+    schemaName: string;
+    parentBranchId: string | null;
+    gitBranch: string | null;
+    prNumber: number | null;
+    prUrl: string | null;
+    status: BranchStatus;
+    isProtected: boolean;
+    createdAt: Date;
+    createdBy: string | null;
+    lastAccessedAt: Date;
+    deletedAt: Date | null;
+    migrationCount: number;
+    tableCount: number;
+    storageBytes: number;
+    autoDeleteDays: number;
+    copyData: boolean;
+    piiMasking: boolean;
+}
+interface CreateBranchOptions {
+    name: string;
+    parentBranch?: string;
+    gitBranch?: string;
+    prNumber?: number;
+    prUrl?: string;
+    copyData?: boolean;
+    piiMasking?: boolean;
+    autoDeleteDays?: number;
+    createdBy?: string;
+}
+interface SwitchBranchResult {
+    connectionString: string;
+    searchPath: string;
+    schemaName: string;
+}
+interface TableDiff {
+    name: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+interface ColumnDiff {
+    tableName: string;
+    columnName: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceType?: string;
+    targetType?: string;
+    sourceNullable?: boolean;
+    targetNullable?: boolean;
+    sourceDefault?: string;
+    targetDefault?: string;
+    isBreaking: boolean;
+}
+interface IndexDiff {
+    tableName: string;
+    indexName: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+interface ConstraintDiff {
+    tableName: string;
+    constraintName: string;
+    constraintType: 'primary_key' | 'foreign_key' | 'unique' | 'check';
+    action: 'added' | 'removed' | 'modified';
+    isBreaking: boolean;
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+type ConflictResolution = 'keep_source' | 'keep_target' | 'manual';
+interface Conflict {
+    type: 'column_type_mismatch' | 'constraint_conflict' | 'table_removed' | 'migration_order';
+    description: string;
+    sourcePath: string;
+    targetPath: string;
+    resolution: ConflictResolution[];
+}
+interface SchemaDiff {
+    source: string;
+    target: string;
+    generatedAt: Date;
+    hasChanges: boolean;
+    canAutoMerge: boolean;
+    tables: TableDiff[];
+    columns: ColumnDiff[];
+    indexes: IndexDiff[];
+    constraints: ConstraintDiff[];
+    conflicts: Conflict[];
+    forwardSql: string[];
+    reverseSql: string[];
+}
+interface MergeOptions {
+    sourceBranch: string;
+    targetBranch: string;
+    dryRun?: boolean;
+    conflictResolution?: Record<string, ConflictResolution>;
+    deleteSourceAfterMerge?: boolean;
+    author?: string;
+}
+interface MergeResult {
+    success: boolean;
+    migrationsApplied: number;
+    conflicts: Conflict[];
+    errors: string[];
+    rollbackAvailable: boolean;
+}
+interface ListBranchesFilter {
+    status?: BranchStatus;
+    parentId?: string;
+    staleDays?: number;
+}
+interface CleanupOptions {
+    maxAgeDays?: number;
+    dryRun?: boolean;
+    skipProtected?: boolean;
+}
+interface CleanupResult {
+    deleted: string[];
+    skipped: string[];
+}
+
+interface BranchManagerOptions {
+    driver: Driver;
+    mainSchemaName?: string;
+    branchPrefix?: string;
+    defaultAutoDeleteDays?: number;
+    metadataTableName?: string;
+}
+declare class BranchManager {
+    private driver;
+    private mainSchema;
+    private branchPrefix;
+    private defaultAutoDeleteDays;
+    private metadataTable;
+    constructor(options: BranchManagerOptions);
+    ensureMetadataTable(): Promise<void>;
+    createBranch(options: CreateBranchOptions): Promise<Branch>;
+    getBranchBySlug(slug: string): Promise<Branch | null>;
+    getBranchById(id: string): Promise<Branch | null>;
+    deleteBranch(branchSlug: string, force?: boolean): Promise<void>;
+    switchBranch(branchSlug: string): Promise<SwitchBranchResult>;
+    diffBranches(sourceBranch: string, targetBranch: string): Promise<SchemaDiff>;
+    mergeBranch(options: MergeOptions): Promise<MergeResult>;
+    listBranches(filter?: ListBranchesFilter): Promise<Branch[]>;
+    cleanupStaleBranches(options?: CleanupOptions): Promise<CleanupResult>;
+    protectBranch(branchSlug: string): Promise<void>;
+    unprotectBranch(branchSlug: string): Promise<void>;
+    updateBranchStats(branchSlug: string): Promise<void>;
+    private cloneSchemaStructure;
+    private cloneSequences;
+    private cloneViews;
+    private copyDataWithMasking;
+    private isPiiColumn;
+    private getTableCount;
+    private generateSlug;
+    private quoteIdent;
+    private resolveSchemaName;
+    private generateConnectionString;
+    private mapBranchRow;
+}
+declare function createBranchManager(options: BranchManagerOptions): BranchManager;
+
+declare class SchemaDiffer {
+    private driver;
+    constructor(driver: Driver);
+    diff(sourceSchema: string, targetSchema: string): Promise<SchemaDiff>;
+    private getSchemaInfo;
+    private diffTables;
+    private diffColumns;
+    private diffIndexes;
+    private diffConstraints;
+    private detectConflicts;
+    private generateMigrationSql;
+    private getTableDefinition;
+    private getColumnType;
+    private hasColumnChanges;
+    private isBreakingTypeChange;
+    private normalizeIndexDef;
+    private mapConstraintType;
+    private getConstraintDefinition;
+}
+
+interface MigrationRecord {
+    version: number;
+    name: string;
+    scope: 'core' | 'template';
+    checksum: string;
+    upSql: string[];
+    downSql: string[];
+    appliedAt: Date;
+}
+interface MigrationMergerOptions {
+    mainSchema?: string;
+    branchPrefix?: string;
+    migrationsTable?: string;
+}
+declare class MigrationMerger {
+    private driver;
+    private mainSchema;
+    private migrationsTable;
+    constructor(driver: Driver, options?: MigrationMergerOptions);
+    merge(options: MergeOptions): Promise<MergeResult>;
+    getPendingMigrations(_sourceBranch: string, _targetBranch: string): Promise<MigrationRecord[]>;
+    detectMigrationConflicts(migrations: MigrationRecord[], targetBranch: string): Promise<Conflict[]>;
+    private allConflictsResolved;
+    private resolveSchemaName;
+    private tableExists;
+    private computeChecksum;
+    private quoteIdent;
+}
+
+interface ConnectionManagerOptions {
+    driver: Driver;
+    mainSchema?: string;
+    branchPrefix?: string;
+}
+interface BranchConnection {
+    schemaName: string;
+    searchPath: string;
+    connectionString: string;
+}
+declare class ConnectionManager {
+    private driver;
+    private mainSchema;
+    private branchPrefix;
+    private currentSchema;
+    constructor(options: ConnectionManagerOptions);
+    switchToBranch(branchSlug: string): Promise<BranchConnection>;
+    switchToMain(): Promise<BranchConnection>;
+    withBranch<T>(branchSlug: string, callback: (client: TransactionClient) => Promise<T>): Promise<T>;
+    withSchema<T>(schemaName: string, callback: (client: TransactionClient) => Promise<T>): Promise<T>;
+    getCurrentSchema(): string;
+    getCurrentSearchPath(): Promise<string>;
+    validateSchema(schemaName: string): Promise<boolean>;
+    listAvailableSchemas(): Promise<string[]>;
+    generateConnectionString(schemaName: string): string;
+    generateEnvVars(schemaName: string): Record<string, string>;
+    private getSchemaForBranch;
+    private updateLastAccessed;
+}
+declare function createConnectionManager(options: ConnectionManagerOptions): ConnectionManager;
+
+interface CleanupSchedulerOptions {
+    driver: Driver;
+    intervalMs?: number;
+    defaultMaxAgeDays?: number;
+    skipProtected?: boolean;
+    metadataTable?: string;
+    onCleanup?: (result: CleanupResult) => void;
+    onError?: (error: Error) => void;
+}
+interface CleanupJob {
+    id: string;
+    startedAt: Date;
+    completedAt?: Date;
+    result?: CleanupResult;
+    error?: string;
+}
+declare class CleanupScheduler {
+    private driver;
+    private intervalMs;
+    private defaultMaxAgeDays;
+    private skipProtected;
+    private metadataTable;
+    private onCleanup?;
+    private onError?;
+    private intervalId;
+    private isRunning;
+    private lastRun;
+    private history;
+    constructor(options: CleanupSchedulerOptions);
+    start(): void;
+    stop(): void;
+    isScheduled(): boolean;
+    isCurrentlyRunning(): boolean;
+    getLastRun(): CleanupJob | null;
+    getHistory(limit?: number): CleanupJob[];
+    runCleanup(options?: {
+        maxAgeDays?: number;
+        dryRun?: boolean;
+    }): Promise<CleanupResult>;
+    private executeCleanup;
+    private tryDeleteBranch;
+    private recordSuccess;
+    private recordError;
+    getStaleBranches(maxAgeDays: number): Promise<Branch[]>;
+    markAsStale(maxAgeDays: number): Promise<number>;
+    getUpcomingCleanups(daysAhead?: number): Promise<{
+        branch: Branch;
+        daysUntilCleanup: number;
+    }[]>;
+    private deleteBranch;
+    private generateJobId;
+    private quoteIdent;
+    private mapBranchRow;
+}
+declare function createCleanupScheduler(options: CleanupSchedulerOptions): CleanupScheduler;
+
 declare function createDb(options: {
     connectionString: string;
     migrationsPath?: string;
@@ -697,4 +999,4 @@ declare function createDb(options: {
     strictTenantMode?: boolean;
 }): Promise<DbClient>;
 
-export { Column, type ColumnDefinition, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type ConflictClause, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, Index, type IndexDefinition, type IndexOptions, InsertBuilder, type JoinClause, ManyToMany, ManyToOne, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, PrimaryKey, type QueryAST, type QueryResult, type RegisterSchemaOptions, type RelationMetadata, Repository, SQLCompiler, type SchemaDefinition, SchemaRegistry, type SchemaRegistryOptions, SelectBuilder, TableBuilder, type TableDefinition, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createCompiler, createDb, createDbClient, createDriver, createMigrationCollector, createMigrationRunner, createModuleRegistry, createRepository, createSchemaRegistry, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDialect, getEntityColumns, getEntityTableName, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, sqliteDialect, validateTenantContext, validateTenantContextOrWarn };
+export { type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type JoinClause, type ListBranchesFilter, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, PrimaryKey, type QueryAST, type QueryResult, type RegisterSchemaOptions, type RelationMetadata, Repository, SQLCompiler, type SchemaDefinition, type SchemaDiff, SchemaDiffer, SchemaRegistry, type SchemaRegistryOptions, SelectBuilder, type SwitchBranchResult, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createMigrationCollector, createMigrationRunner, createModuleRegistry, createRepository, createSchemaRegistry, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDialect, getEntityColumns, getEntityTableName, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, sqliteDialect, validateTenantContext, validateTenantContextOrWarn };
