@@ -143,11 +143,34 @@ interface MongoOperation {
     options?: MongoOperationOptions;
 }
 
+interface PoolStats {
+    totalConnections: number;
+    activeConnections: number;
+    idleConnections: number;
+    waitingRequests: number;
+    maxConnections: number;
+}
+interface HealthCheckResult {
+    healthy: boolean;
+    latencyMs: number;
+    lastCheckedAt: Date;
+    error?: string;
+}
+interface HealthCheckConfig {
+    enabled?: boolean;
+    intervalMs?: number;
+    timeoutMs?: number;
+    onHealthChange?: (healthy: boolean, result: HealthCheckResult) => void;
+}
+declare function createHealthCheckResult(healthy: boolean, latencyMs: number, error?: string): HealthCheckResult;
+declare function getDefaultHealthCheckConfig(overrides?: Partial<HealthCheckConfig>): HealthCheckConfig;
+
 interface DriverConfig {
     connectionString: string;
     max?: number;
     idleTimeout?: number;
     connectTimeout?: number;
+    healthCheck?: HealthCheckConfig;
 }
 type DrainPhase = 'draining' | 'cancelling' | 'closing' | 'complete';
 interface DrainOptions {
@@ -178,6 +201,11 @@ interface Driver {
     }>;
     transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T>;
     close(): Promise<void>;
+    healthCheck(): Promise<HealthCheckResult>;
+    getPoolStats(): PoolStats;
+    isHealthy(): boolean;
+    startHealthChecks(): void;
+    stopHealthChecks(): void;
     drainAndClose(options?: DrainOptions): Promise<DrainResult>;
     getActiveQueryCount(): number;
     readonly isDraining: boolean;
@@ -828,6 +856,31 @@ interface SignalHandlerOptions {
 }
 declare function registerSignalHandlers(driver: Driver, options?: SignalHandlerOptions): () => void;
 
+interface PoolMonitorConfig {
+    warningThreshold?: number;
+    criticalThreshold?: number;
+    checkIntervalMs?: number;
+    onWarning?: (stats: PoolStats) => void;
+    onCritical?: (stats: PoolStats) => void;
+    onRecovery?: (stats: PoolStats) => void;
+}
+interface PoolMonitor {
+    start(): void;
+    stop(): void;
+    getLastLevel(): 'normal' | 'warning' | 'critical';
+}
+declare function createPoolMonitor(getStats: () => PoolStats, config?: PoolMonitorConfig): PoolMonitor;
+
+interface RetryConfig {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    retryableErrors?: string[];
+}
+declare function isRetryableError(error: unknown, customErrors?: string[]): boolean;
+declare function withRetry<T>(operation: () => Promise<T>, config?: RetryConfig): Promise<T>;
+declare function createTimeoutPromise<T>(timeoutMs: number): Promise<T>;
+
 interface CreateDriverOptions extends DriverConfig {
     dialect?: DialectName;
     database?: string;
@@ -1383,4 +1436,4 @@ declare function createDb(options: {
     strictTenantMode?: boolean;
 }): Promise<DbClient>;
 
-export { type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type DrainOptions, type DrainPhase, type DrainProgress, type DrainResult, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type JoinClause, type ListBranchesFilter, type LoadedSeeder, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, type MongoOperation, type MongoOperationOptions, type MongoOperationType, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, PrimaryKey, type QueryAST, type QueryInfo, type QueryResult, QueryTracker, type RegisterSchemaOptions, type RelationMetadata, Repository, SQLCompiler, type SchemaDefinition, type SchemaDiff, SchemaDiffer, SchemaRegistry, type SchemaRegistryOptions, SeedLoader, type SeedLoaderOptions, type SeedRecord, type SeedResult, type SeedRunOptions, type SeedRunResult, SeedRunner, type SeedRunnerOptions, SeedTracker, type SeedTrackerOptions, Seeder, type SeederConstructor, type SeederLogger, type SeederMetadata, type SeederResult, SelectBuilder, type SignalHandlerOptions, SqlSeederAdapter, type SwitchBranchResult, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createMigrationCollector, createMigrationRunner, createModuleRegistry, createRepository, createSchemaRegistry, createSeedRunner, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDialect, getEntityColumns, getEntityTableName, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, registerSignalHandlers, sqliteDialect, validateTenantContext, validateTenantContextOrWarn };
+export { type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type DrainOptions, type DrainPhase, type DrainProgress, type DrainResult, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, type HealthCheckConfig, type HealthCheckResult, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type JoinClause, type ListBranchesFilter, type LoadedSeeder, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, type MongoOperation, type MongoOperationOptions, type MongoOperationType, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, type PoolMonitor, type PoolMonitorConfig, type PoolStats, PrimaryKey, type QueryAST, type QueryInfo, type QueryResult, QueryTracker, type RegisterSchemaOptions, type RelationMetadata, Repository, type RetryConfig, SQLCompiler, type SchemaDefinition, type SchemaDiff, SchemaDiffer, SchemaRegistry, type SchemaRegistryOptions, SeedLoader, type SeedLoaderOptions, type SeedRecord, type SeedResult, type SeedRunOptions, type SeedRunResult, SeedRunner, type SeedRunnerOptions, SeedTracker, type SeedTrackerOptions, Seeder, type SeederConstructor, type SeederLogger, type SeederMetadata, type SeederResult, SelectBuilder, type SignalHandlerOptions, SqlSeederAdapter, type SwitchBranchResult, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createHealthCheckResult, createMigrationCollector, createMigrationRunner, createModuleRegistry, createPoolMonitor, createRepository, createSchemaRegistry, createSeedRunner, createTimeoutPromise, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDefaultHealthCheckConfig, getDialect, getEntityColumns, getEntityTableName, isRetryableError, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, registerSignalHandlers, sqliteDialect, validateTenantContext, validateTenantContextOrWarn, withRetry };

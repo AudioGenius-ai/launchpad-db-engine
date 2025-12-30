@@ -6,7 +6,13 @@ import {
   getDefaultHealthCheckConfig,
 } from './health.js';
 import { QueryTracker } from './query-tracker.js';
-import type { Driver, DriverConfig, DrainOptions, DrainResult, TransactionClient } from './types.js';
+import type {
+  DrainOptions,
+  DrainResult,
+  Driver,
+  DriverConfig,
+  TransactionClient,
+} from './types.js';
 
 export async function createSQLiteDriver(config: DriverConfig): Promise<Driver> {
   const Database = (await import('better-sqlite3')).default;

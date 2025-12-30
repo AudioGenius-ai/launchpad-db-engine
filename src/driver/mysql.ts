@@ -8,7 +8,13 @@ import {
 } from './health.js';
 import { QueryTracker } from './query-tracker.js';
 import { createTimeoutPromise } from './retry.js';
-import type { Driver, DriverConfig, DrainOptions, DrainResult, TransactionClient } from './types.js';
+import type {
+  DrainOptions,
+  DrainResult,
+  Driver,
+  DriverConfig,
+  TransactionClient,
+} from './types.js';
 
 export async function createMySQLDriver(config: DriverConfig): Promise<Driver> {
   const mysql = await import('mysql2/promise');

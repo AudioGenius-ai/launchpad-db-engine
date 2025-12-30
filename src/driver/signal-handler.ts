@@ -1,4 +1,4 @@
-import type { Driver, DrainResult } from './types.js';
+import type { DrainResult, Driver } from './types.js';
 
 export interface SignalHandlerOptions {
   timeout?: number;

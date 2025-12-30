@@ -8,7 +8,13 @@ import {
 } from './health.js';
 import { QueryTracker } from './query-tracker.js';
 import { createTimeoutPromise } from './retry.js';
-import type { Driver, DriverConfig, DrainOptions, DrainResult, TransactionClient } from './types.js';
+import type {
+  DrainOptions,
+  DrainResult,
+  Driver,
+  DriverConfig,
+  TransactionClient,
+} from './types.js';
 
 export function createPostgresDriver(config: DriverConfig): Driver {
   const sql = postgres(config.connectionString, {
@@ -119,7 +125,10 @@ export function createPostgresDriver(config: DriverConfig): Driver {
               };
             },
 
-            async execute(queryText: string, params: unknown[] = []): Promise<{ rowCount: number }> {
+            async execute(
+              queryText: string,
+              params: unknown[] = []
+            ): Promise<{ rowCount: number }> {
               const txResult = await tx.unsafe(queryText, params as ParameterOrJSON<never>[]);
               return { rowCount: txResult.count ?? 0 };
             },

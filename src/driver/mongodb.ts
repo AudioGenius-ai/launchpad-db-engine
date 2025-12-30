@@ -6,7 +6,13 @@ import {
   getDefaultHealthCheckConfig,
 } from './health.js';
 import { QueryTracker } from './query-tracker.js';
-import type { Driver, DriverConfig, DrainOptions, DrainResult, TransactionClient } from './types.js';
+import type {
+  DrainOptions,
+  DrainResult,
+  Driver,
+  DriverConfig,
+  TransactionClient,
+} from './types.js';
 
 let mongodbModule: typeof import('mongodb') | null = null;
 

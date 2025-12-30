@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerSignalHandlers } from './signal-handler.js';
-import type { Driver, DrainResult } from './types.js';
+import type { DrainResult, Driver } from './types.js';
 
-function createMockDriver(options: { drainResult?: DrainResult; drainDelay?: number } = {}): Driver {
+function createMockDriver(
+  options: { drainResult?: DrainResult; drainDelay?: number } = {}
+): Driver {
   const defaultResult: DrainResult = {
     success: true,
     completedQueries: 0,
@@ -102,9 +104,7 @@ describe('registerSignalHandlers', () => {
     process.emit('SIGTERM');
 
     await vi.waitFor(() => {
-      expect(driver.drainAndClose).toHaveBeenCalledWith(
-        expect.objectContaining({ timeout: 5000 })
-      );
+      expect(driver.drainAndClose).toHaveBeenCalledWith(expect.objectContaining({ timeout: 5000 }));
     });
   });
 
@@ -209,9 +209,7 @@ describe('registerSignalHandlers', () => {
     process.emit('SIGTERM');
 
     await vi.waitFor(() => {
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Received SIGTERM')
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Received SIGTERM'));
     });
   });
 

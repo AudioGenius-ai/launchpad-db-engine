@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import type { DrainPhase } from './types.js';
+import { describe, expect, it, vi } from 'vitest';
 import { QueryTracker } from './query-tracker.js';
+import type { DrainPhase } from './types.js';
 
 describe('QueryTracker class', () => {
   it('should track and untrack queries', () => {
@@ -51,17 +51,21 @@ describe('Graceful Shutdown Mock Tests', () => {
       transaction: vi.fn(),
       close: vi.fn(),
       getActiveQueryCount: vi.fn().mockReturnValue(0),
-      drainAndClose: vi.fn().mockImplementation(async (options?: { onProgress?: (p: { phase: DrainPhase }) => void }) => {
-        options?.onProgress?.({ phase: 'draining' });
-        options?.onProgress?.({ phase: 'closing' });
-        options?.onProgress?.({ phase: 'complete' });
-        return {
-          success: true,
-          completedQueries: 0,
-          cancelledQueries: 0,
-          elapsedMs: 50,
-        };
-      }),
+      drainAndClose: vi
+        .fn()
+        .mockImplementation(
+          async (options?: { onProgress?: (p: { phase: DrainPhase }) => void }) => {
+            options?.onProgress?.({ phase: 'draining' });
+            options?.onProgress?.({ phase: 'closing' });
+            options?.onProgress?.({ phase: 'complete' });
+            return {
+              success: true,
+              completedQueries: 0,
+              cancelledQueries: 0,
+              elapsedMs: 50,
+            };
+          }
+        ),
     };
 
     await mockDriver.drainAndClose({

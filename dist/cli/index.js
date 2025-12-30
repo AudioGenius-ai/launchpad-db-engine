@@ -8,6 +8,29 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/driver/health.ts
+function createHealthCheckResult(healthy, latencyMs, error) {
+  return {
+    healthy,
+    latencyMs,
+    lastCheckedAt: /* @__PURE__ */ new Date(),
+    ...error && { error }
+  };
+}
+function getDefaultHealthCheckConfig(overrides) {
+  return {
+    enabled: overrides?.enabled ?? false,
+    intervalMs: overrides?.intervalMs ?? 3e4,
+    timeoutMs: overrides?.timeoutMs ?? 5e3,
+    onHealthChange: overrides?.onHealthChange
+  };
+}
+var init_health = __esm({
+  "src/driver/health.ts"() {
+    "use strict";
+  }
+});
+
 // src/driver/query-tracker.ts
 var QueryTracker;
 var init_query_tracker = __esm({
@@ -90,6 +113,18 @@ var init_query_tracker = __esm({
   }
 });
 
+// src/driver/retry.ts
+function createTimeoutPromise(timeoutMs) {
+  return new Promise(
+    (_, reject) => setTimeout(() => reject(new Error("Health check timeout")), timeoutMs)
+  );
+}
+var init_retry = __esm({
+  "src/driver/retry.ts"() {
+    "use strict";
+  }
+});
+
 // src/driver/mongodb.ts
 var mongodb_exports = {};
 __export(mongodb_exports, {
@@ -111,17 +146,44 @@ async function getMongoDBModule() {
 async function createMongoDriver(config) {
   const mongodb = await getMongoDBModule();
   const { MongoClient } = mongodb;
+  const maxConnections = config.max ?? 10;
   const client = new MongoClient(config.connectionString, {
-    maxPoolSize: config.max ?? 10,
+    maxPoolSize: maxConnections,
     serverSelectionTimeoutMS: config.connectTimeout ?? 5e3,
     maxIdleTimeMS: config.idleTimeout ?? 3e4
   });
   await client.connect();
   const db = client.db(config.database);
+  let lastHealthCheck = createHealthCheckResult(true, 0);
+  let healthCheckInterval = null;
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
   const tracker = new QueryTracker();
   let queryIdCounter = 0;
   let draining = false;
   const generateQueryId = () => `mongo-${++queryIdCounter}`;
+  async function performHealthCheck() {
+    const startTime = Date.now();
+    try {
+      await db.command({ ping: 1 });
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    }
+  }
   async function executeOperation(op) {
     const queryId = generateQueryId();
     tracker.trackQuery(queryId, `${op.type}:${op.collection}`);
@@ -365,7 +427,37 @@ async function createMongoDriver(config) {
       return result;
     },
     async close() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await client.close();
+    },
+    async healthCheck() {
+      return performHealthCheck();
+    },
+    getPoolStats() {
+      return {
+        totalConnections: maxConnections,
+        activeConnections: 0,
+        idleConnections: maxConnections,
+        waitingRequests: 0,
+        maxConnections
+      };
+    },
+    isHealthy() {
+      return lastHealthCheck.healthy;
+    },
+    startHealthChecks() {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 3e4);
+      performHealthCheck();
+    },
+    stopHealthChecks() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     },
     executeOperation,
     getDb() {
@@ -384,6 +476,7 @@ var mongodbModule, MongoTransactionClientImpl;
 var init_mongodb = __esm({
   "src/driver/mongodb.ts"() {
     "use strict";
+    init_health();
     init_query_tracker();
     mongodbModule = null;
     MongoTransactionClientImpl = class {
@@ -418,10 +511,42 @@ async function createMySQLDriver(config) {
     idleTimeout: (config.idleTimeout ?? 30) * 1e3,
     connectTimeout: (config.connectTimeout ?? 10) * 1e3
   });
+  const maxConnections = config.max ?? 20;
+  let lastHealthCheck = createHealthCheckResult(true, 0);
+  let healthCheckInterval = null;
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
   const tracker = new QueryTracker();
   let queryIdCounter = 0;
   let draining = false;
   const generateQueryId = () => `mysql-${++queryIdCounter}`;
+  async function performHealthCheck() {
+    const startTime = Date.now();
+    try {
+      const connection = await Promise.race([
+        pool.getConnection(),
+        createTimeoutPromise(healthCheckConfig.timeoutMs ?? 5e3)
+      ]);
+      await connection.ping();
+      connection.release();
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    }
+  }
   return {
     dialect: "mysql",
     connectionString: config.connectionString,
@@ -555,14 +680,47 @@ async function createMySQLDriver(config) {
       return result;
     },
     async close() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await pool.end();
+    },
+    async healthCheck() {
+      return performHealthCheck();
+    },
+    getPoolStats() {
+      const poolState = pool.pool;
+      return {
+        totalConnections: poolState?._allConnections?.length ?? 0,
+        activeConnections: poolState?._acquiringConnections?.length ?? 0,
+        idleConnections: poolState?._freeConnections?.length ?? 0,
+        waitingRequests: poolState?._connectionQueue?.length ?? 0,
+        maxConnections
+      };
+    },
+    isHealthy() {
+      return lastHealthCheck.healthy;
+    },
+    startHealthChecks() {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 3e4);
+      performHealthCheck();
+    },
+    stopHealthChecks() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     }
   };
 }
 var init_mysql = __esm({
   "src/driver/mysql.ts"() {
     "use strict";
+    init_health();
     init_query_tracker();
+    init_retry();
   }
 });
 
@@ -577,10 +735,36 @@ async function createSQLiteDriver(config) {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  let lastHealthCheck = createHealthCheckResult(true, 0);
+  let healthCheckInterval = null;
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
   const tracker = new QueryTracker();
   let queryIdCounter = 0;
   let draining = false;
   const generateQueryId = () => `sqlite-${++queryIdCounter}`;
+  function performHealthCheck() {
+    const startTime = Date.now();
+    try {
+      db.prepare("SELECT 1").get();
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    }
+  }
   return {
     dialect: "sqlite",
     connectionString: config.connectionString,
@@ -688,13 +872,44 @@ async function createSQLiteDriver(config) {
       return result;
     },
     async close() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       db.close();
+    },
+    async healthCheck() {
+      return performHealthCheck();
+    },
+    getPoolStats() {
+      return {
+        totalConnections: 1,
+        activeConnections: lastHealthCheck.healthy ? 1 : 0,
+        idleConnections: 0,
+        waitingRequests: 0,
+        maxConnections: 1
+      };
+    },
+    isHealthy() {
+      return lastHealthCheck.healthy;
+    },
+    startHealthChecks() {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 3e4);
+      performHealthCheck();
+    },
+    stopHealthChecks() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     }
   };
 }
 var init_sqlite = __esm({
   "src/driver/sqlite.ts"() {
     "use strict";
+    init_health();
     init_query_tracker();
   }
 });
@@ -704,7 +919,9 @@ import { mkdir, readFile as readFile3, writeFile } from "fs/promises";
 import { dirname, join as join3 } from "path";
 
 // src/driver/postgresql.ts
+init_health();
 init_query_tracker();
+init_retry();
 import postgres from "postgres";
 function createPostgresDriver(config) {
   const sql = postgres(config.connectionString, {
@@ -713,10 +930,40 @@ function createPostgresDriver(config) {
     connect_timeout: config.connectTimeout ?? 10,
     prepare: true
   });
+  const maxConnections = config.max ?? 20;
+  let lastHealthCheck = createHealthCheckResult(true, 0);
+  let healthCheckInterval = null;
+  const healthCheckConfig = getDefaultHealthCheckConfig(config.healthCheck);
   const tracker = new QueryTracker();
   let queryIdCounter = 0;
   let draining = false;
   const generateQueryId = () => `pg-${++queryIdCounter}`;
+  async function performHealthCheck() {
+    const startTime = Date.now();
+    try {
+      await Promise.race([
+        sql`SELECT 1`,
+        createTimeoutPromise(healthCheckConfig.timeoutMs ?? 5e3)
+      ]);
+      const result = createHealthCheckResult(true, Date.now() - startTime);
+      if (!lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(true, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    } catch (error) {
+      const result = createHealthCheckResult(
+        false,
+        Date.now() - startTime,
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      if (lastHealthCheck.healthy && healthCheckConfig.onHealthChange) {
+        healthCheckConfig.onHealthChange(false, result);
+      }
+      lastHealthCheck = result;
+      return result;
+    }
+  }
   return {
     dialect: "postgresql",
     connectionString: config.connectionString,
@@ -840,7 +1087,37 @@ function createPostgresDriver(config) {
       return result;
     },
     async close() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await sql.end();
+    },
+    async healthCheck() {
+      return performHealthCheck();
+    },
+    getPoolStats() {
+      return {
+        totalConnections: maxConnections,
+        activeConnections: sql.connections ?? 0,
+        idleConnections: maxConnections - (sql.connections ?? 0),
+        waitingRequests: 0,
+        maxConnections
+      };
+    },
+    isHealthy() {
+      return lastHealthCheck.healthy;
+    },
+    startHealthChecks() {
+      if (healthCheckInterval) return;
+      healthCheckInterval = setInterval(performHealthCheck, healthCheckConfig.intervalMs ?? 3e4);
+      performHealthCheck();
+    },
+    stopHealthChecks() {
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
     }
   };
 }
@@ -848,6 +1125,8 @@ function createPostgresDriver(config) {
 // src/driver/index.ts
 init_mongodb();
 init_query_tracker();
+init_health();
+init_retry();
 function detectDialect(connectionString) {
   if (connectionString.startsWith("mongodb://") || connectionString.startsWith("mongodb+srv://")) {
     return "mongodb";
