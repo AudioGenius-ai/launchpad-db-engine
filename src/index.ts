@@ -57,6 +57,29 @@ export {
   validateTenantContextOrWarn,
 } from './utils/tenant-validation.js';
 
+export {
+  Seeder,
+  SeedRunner,
+  createSeedRunner,
+  SeedLoader,
+  SeedTracker,
+  SqlSeederAdapter,
+} from './seed/index.js';
+export type {
+  SeedResult,
+  SeederMetadata,
+  SeederLogger,
+  LoadedSeeder,
+  SeedLoaderOptions,
+  SeederConstructor,
+  SeedRunnerOptions,
+  SeedRunOptions,
+  SeedRunResult,
+  SeederResult,
+  SeedTrackerOptions,
+  SeedRecord,
+} from './seed/index.js';
+
 export async function createDb(options: {
   connectionString: string;
   migrationsPath?: string;
