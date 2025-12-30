@@ -42,6 +42,14 @@ describe('SchemaDiffer', () => {
 
       const diff = await differ.diff(schema1, schema2);
 
+      if (diff.hasChanges) {
+        console.log('Unexpected changes detected:');
+        console.log('Tables:', JSON.stringify(diff.tables, null, 2));
+        console.log('Columns:', JSON.stringify(diff.columns, null, 2));
+        console.log('Indexes:', JSON.stringify(diff.indexes, null, 2));
+        console.log('Constraints:', JSON.stringify(diff.constraints, null, 2));
+      }
+
       expect(diff.hasChanges).toBe(false);
       expect(diff.canAutoMerge).toBe(true);
       expect(diff.tables).toHaveLength(0);
