@@ -3,12 +3,18 @@ import { createPostgresDriver } from './postgresql.js';
 import type { Driver, DriverConfig } from './types.js';
 
 export type { Driver, DriverConfig, TransactionClient } from './types.js';
+export type { MongoDriver, MongoDriverConfig, MongoTransactionClient } from './mongodb.js';
+export { createMongoDriver, isMongoDriver } from './mongodb.js';
 
 export interface CreateDriverOptions extends DriverConfig {
   dialect?: DialectName;
+  database?: string;
 }
 
 export function detectDialect(connectionString: string): DialectName {
+  if (connectionString.startsWith('mongodb://') || connectionString.startsWith('mongodb+srv://')) {
+    return 'mongodb';
+  }
   if (connectionString.startsWith('postgres://') || connectionString.startsWith('postgresql://')) {
     return 'postgresql';
   }
@@ -42,6 +48,11 @@ export async function createDriver(options: CreateDriverOptions): Promise<Driver
     case 'sqlite': {
       const { createSQLiteDriver } = await import('./sqlite.js');
       return createSQLiteDriver(options);
+    }
+
+    case 'mongodb': {
+      const { createMongoDriver } = await import('./mongodb.js');
+      return createMongoDriver(options);
     }
 
     default:

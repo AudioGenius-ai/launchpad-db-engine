@@ -508,3 +508,6 @@ export class SQLCompiler {
 export function createCompiler(options: CompilerOptions): SQLCompiler {
   return new SQLCompiler(options);
 }
+
+export { MongoCompiler, createMongoCompiler } from './mongo.js';
+export type { MongoCompilerOptions } from './mongo.js';
