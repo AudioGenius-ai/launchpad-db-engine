@@ -162,9 +162,42 @@ export interface MigrationStatus {
   current: number | null;
 }
 
-export type DialectName = 'postgresql' | 'mysql' | 'sqlite';
+export type DialectName = 'postgresql' | 'mysql' | 'sqlite' | 'mongodb';
 
 export interface QueryResult<T = Record<string, unknown>> {
   rows: T[];
   rowCount: number;
+}
+
+export type MongoOperationType =
+  | 'find'
+  | 'aggregate'
+  | 'insertOne'
+  | 'insertMany'
+  | 'updateOne'
+  | 'updateMany'
+  | 'deleteOne'
+  | 'deleteMany'
+  | 'findOneAndUpdate'
+  | 'findOneAndDelete'
+  | 'countDocuments';
+
+export interface MongoOperationOptions {
+  sort?: Record<string, 1 | -1>;
+  limit?: number;
+  skip?: number;
+  projection?: Record<string, 0 | 1>;
+  upsert?: boolean;
+  returnDocument?: 'before' | 'after';
+}
+
+export interface MongoOperation {
+  type: MongoOperationType;
+  collection: string;
+  filter?: Record<string, unknown>;
+  pipeline?: Record<string, unknown>[];
+  document?: Record<string, unknown>;
+  documents?: Record<string, unknown>[];
+  update?: Record<string, unknown>;
+  options?: MongoOperationOptions;
 }

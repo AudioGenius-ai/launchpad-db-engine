@@ -1,7 +1,8 @@
-import { SQLCompiler } from './compiler/index.js';
+import { MongoCompiler, SQLCompiler } from './compiler/index.js';
+import { isMongoDriver } from './driver/mongodb.js';
 import type { Driver, TransactionClient } from './driver/types.js';
 import { type MigrationRunOptions, MigrationRunner } from './migrations/runner.js';
-import { TableBuilder } from './query-builder/index.js';
+import { MongoTableBuilder, TableBuilder } from './query-builder/index.js';
 import { type RegisterSchemaOptions, SchemaRegistry } from './schema/registry.js';
 import type { QueryResult, TenantContext } from './types/index.js';
 import { validateTenantContext } from './utils/tenant-validation.js';
@@ -17,20 +18,28 @@ export interface DbClientOptions {
 
 export class DbClient {
   private driver: Driver;
-  private compiler: SQLCompiler;
+  private compiler: SQLCompiler | MongoCompiler;
   private migrationRunner?: MigrationRunner;
   private schemaRegistry: SchemaRegistry;
   private strictTenantMode: boolean;
 
   constructor(driver: Driver, options: DbClientOptions = {}) {
     this.driver = driver;
-    this.compiler = new SQLCompiler({
-      dialect: driver.dialect,
-      injectTenant: true,
-      tenantColumns: options.tenantColumns,
-    });
 
-    if (options.migrationsPath) {
+    if (driver.dialect === 'mongodb') {
+      this.compiler = new MongoCompiler({
+        injectTenant: true,
+        tenantColumns: options.tenantColumns,
+      });
+    } else {
+      this.compiler = new SQLCompiler({
+        dialect: driver.dialect,
+        injectTenant: true,
+        tenantColumns: options.tenantColumns,
+      });
+    }
+
+    if (options.migrationsPath && driver.dialect !== 'mongodb') {
       this.migrationRunner = new MigrationRunner(driver, {
         migrationsPath: options.migrationsPath,
       });
@@ -40,14 +49,26 @@ export class DbClient {
     this.strictTenantMode = options.strictTenantMode ?? true;
   }
 
-  table<T = Record<string, unknown>>(name: string, ctx: TenantContext): TableBuilder<T> {
+  table<T = Record<string, unknown>>(
+    name: string,
+    ctx: TenantContext
+  ): TableBuilder<T> | MongoTableBuilder<T> {
     if (this.strictTenantMode) {
       validateTenantContext(ctx, name);
     }
-    return new TableBuilder<T>(this.driver, this.compiler, name, ctx, true);
+    if (isMongoDriver(this.driver)) {
+      return new MongoTableBuilder<T>(this.driver, this.compiler as MongoCompiler, name, ctx, true);
+    }
+    return new TableBuilder<T>(this.driver, this.compiler as SQLCompiler, name, ctx, true);
   }
 
-  tableWithoutTenant<T = Record<string, unknown>>(name: string): TableBuilder<T> {
+  tableWithoutTenant<T = Record<string, unknown>>(
+    name: string
+  ): TableBuilder<T> | MongoTableBuilder<T> {
+    if (isMongoDriver(this.driver)) {
+      const compilerWithoutTenant = new MongoCompiler({ injectTenant: false });
+      return new MongoTableBuilder<T>(this.driver, compilerWithoutTenant, name, undefined, false);
+    }
     const compilerWithoutTenant = new SQLCompiler({
       dialect: this.driver.dialect,
       injectTenant: false,
@@ -121,17 +142,21 @@ export class DbClient {
 
 export class TransactionContext {
   private client: TransactionClient;
-  private compiler: SQLCompiler;
+  private compiler: SQLCompiler | MongoCompiler;
   private ctx: TenantContext;
 
-  constructor(client: TransactionClient, compiler: SQLCompiler, ctx: TenantContext) {
+  constructor(
+    client: TransactionClient,
+    compiler: SQLCompiler | MongoCompiler,
+    ctx: TenantContext
+  ) {
     this.client = client;
     this.compiler = compiler;
     this.ctx = ctx;
   }
 
   table<T = Record<string, unknown>>(name: string): TableBuilder<T> {
-    return new TableBuilder<T>(this.client, this.compiler, name, this.ctx, true);
+    return new TableBuilder<T>(this.client, this.compiler as SQLCompiler, name, this.ctx, true);
   }
 
   async raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
