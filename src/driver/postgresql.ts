@@ -1,10 +1,10 @@
 import postgres, { type ParameterOrJSON } from 'postgres';
 import type { QueryResult } from '../types/index.js';
 import {
-  createHealthCheckResult,
-  getDefaultHealthCheckConfig,
   type HealthCheckResult,
   type PoolStats,
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
 } from './health.js';
 import { createTimeoutPromise } from './retry.js';
 import type { Driver, DriverConfig, TransactionClient } from './types.js';

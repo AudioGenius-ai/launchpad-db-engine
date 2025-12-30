@@ -1,9 +1,9 @@
 import type { MongoOperation, QueryResult } from '../types/index.js';
 import {
-  createHealthCheckResult,
-  getDefaultHealthCheckConfig,
   type HealthCheckResult,
   type PoolStats,
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
 } from './health.js';
 import type { Driver, DriverConfig, TransactionClient } from './types.js';
 

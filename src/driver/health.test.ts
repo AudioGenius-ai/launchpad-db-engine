@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createHealthCheckResult,
-  getDefaultHealthCheckConfig,
   type HealthCheckConfig,
   type HealthCheckResult,
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
 } from './health.js';
 
 describe('Health Check Utilities', () => {

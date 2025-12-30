@@ -98,10 +98,7 @@ describe('Retry Utilities', () => {
       const error = new Error('Connection refused');
       (error as Error & { code: string }).code = 'ECONNREFUSED';
 
-      const operation = vi
-        .fn()
-        .mockRejectedValueOnce(error)
-        .mockResolvedValue('success');
+      const operation = vi.fn().mockRejectedValueOnce(error).mockResolvedValue('success');
 
       const result = await withRetry(operation, {
         maxRetries: 2,
@@ -145,10 +142,7 @@ describe('Retry Utilities', () => {
       const error = new Error('Connection refused');
       (error as Error & { code: string }).code = 'ECONNREFUSED';
 
-      const operation = vi
-        .fn()
-        .mockRejectedValueOnce(error)
-        .mockResolvedValue('success');
+      const operation = vi.fn().mockRejectedValueOnce(error).mockResolvedValue('success');
 
       await withRetry(operation, {
         maxRetries: 2,

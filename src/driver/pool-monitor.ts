@@ -39,7 +39,11 @@ export function createPoolMonitor(
         stats
       );
       config.onCritical?.(stats);
-    } else if (utilization >= warningThreshold && utilization < criticalThreshold && lastLevel === 'normal') {
+    } else if (
+      utilization >= warningThreshold &&
+      utilization < criticalThreshold &&
+      lastLevel === 'normal'
+    ) {
       lastLevel = 'warning';
       console.warn(
         `[db-engine] WARNING: High pool utilization (${(utilization * 100).toFixed(1)}%)`,

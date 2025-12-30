@@ -33,7 +33,9 @@ export function createHealthCheckResult(
   };
 }
 
-export function getDefaultHealthCheckConfig(overrides?: Partial<HealthCheckConfig>): HealthCheckConfig {
+export function getDefaultHealthCheckConfig(
+  overrides?: Partial<HealthCheckConfig>
+): HealthCheckConfig {
   return {
     enabled: overrides?.enabled ?? false,
     intervalMs: overrides?.intervalMs ?? 30000,

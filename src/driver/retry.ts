@@ -30,7 +30,10 @@ export function isRetryableError(error: unknown, customErrors: string[] = []): b
   return false;
 }
 
-export async function withRetry<T>(operation: () => Promise<T>, config: RetryConfig = {}): Promise<T> {
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  config: RetryConfig = {}
+): Promise<T> {
   const maxRetries = config.maxRetries ?? 3;
   const baseDelayMs = config.baseDelayMs ?? 100;
   const maxDelayMs = config.maxDelayMs ?? 5000;
@@ -48,7 +51,7 @@ export async function withRetry<T>(operation: () => Promise<T>, config: RetryCon
         throw error;
       }
 
-      const delay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+      const delay = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs);
       const jitter = Math.random() * delay * 0.1;
 
       console.warn(
