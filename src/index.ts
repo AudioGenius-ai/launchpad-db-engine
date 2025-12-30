@@ -57,6 +57,42 @@ export {
   validateTenantContextOrWarn,
 } from './utils/tenant-validation.js';
 
+export {
+  BranchManager,
+  createBranchManager,
+  SchemaDiffer,
+  MigrationMerger,
+  ConnectionManager,
+  createConnectionManager,
+  CleanupScheduler,
+  createCleanupScheduler,
+} from './branch/index.js';
+export type {
+  Branch,
+  BranchStatus,
+  CreateBranchOptions,
+  SwitchBranchResult,
+  SchemaDiff,
+  TableDiff,
+  ColumnDiff,
+  IndexDiff,
+  ConstraintDiff,
+  Conflict,
+  ConflictResolution,
+  MergeOptions,
+  MergeResult,
+  ListBranchesFilter,
+  CleanupOptions,
+  CleanupResult,
+  BranchManagerOptions,
+  ConnectionManagerOptions,
+  BranchConnection,
+  CleanupSchedulerOptions,
+  CleanupJob,
+  MigrationMergerOptions,
+  MigrationRecord,
+} from './branch/index.js';
+
 export async function createDb(options: {
   connectionString: string;
   migrationsPath?: string;
