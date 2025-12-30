@@ -1,5 +1,11 @@
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -3591,6 +3597,1507 @@ function generateSchemaFromDefinition(schema) {
 // src/index.ts
 init_client();
 init_tenant_validation();
+
+// src/branch/schema-differ.ts
+var SchemaDiffer = class {
+  constructor(driver) {
+    this.driver = driver;
+  }
+  async diff(sourceSchema, targetSchema) {
+    const [sourceInfo, targetInfo] = await Promise.all([
+      this.getSchemaInfo(sourceSchema),
+      this.getSchemaInfo(targetSchema)
+    ]);
+    const tables = this.diffTables(sourceInfo, targetInfo);
+    const columns = this.diffColumns(sourceInfo, targetInfo);
+    const indexes = this.diffIndexes(sourceInfo, targetInfo);
+    const constraints = this.diffConstraints(sourceInfo, targetInfo);
+    const conflicts = this.detectConflicts(columns, constraints);
+    const hasChanges = tables.length > 0 || columns.length > 0 || indexes.length > 0 || constraints.length > 0;
+    return {
+      source: sourceSchema,
+      target: targetSchema,
+      generatedAt: /* @__PURE__ */ new Date(),
+      hasChanges,
+      canAutoMerge: conflicts.length === 0,
+      tables,
+      columns,
+      indexes,
+      constraints,
+      conflicts,
+      forwardSql: this.generateMigrationSql(
+        sourceSchema,
+        targetSchema,
+        tables,
+        columns,
+        indexes,
+        constraints,
+        "forward"
+      ),
+      reverseSql: this.generateMigrationSql(
+        targetSchema,
+        sourceSchema,
+        tables,
+        columns,
+        indexes,
+        constraints,
+        "reverse"
+      )
+    };
+  }
+  async getSchemaInfo(schemaName) {
+    const [tables, columns, indexes, constraints] = await Promise.all([
+      this.driver.query(
+        `
+        SELECT table_name, table_type
+        FROM information_schema.tables
+        WHERE table_schema = $1 AND table_name NOT LIKE 'lp_%'
+        ORDER BY table_name
+      `,
+        [schemaName]
+      ),
+      this.driver.query(
+        `
+        SELECT
+          table_name, column_name, data_type,
+          character_maximum_length, numeric_precision, numeric_scale,
+          is_nullable, column_default, udt_name, ordinal_position
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name NOT LIKE 'lp_%'
+        ORDER BY table_name, ordinal_position
+      `,
+        [schemaName]
+      ),
+      this.driver.query(
+        `
+        SELECT
+          schemaname, tablename, indexname, indexdef
+        FROM pg_indexes
+        WHERE schemaname = $1 AND tablename NOT LIKE 'lp_%'
+        ORDER BY tablename, indexname
+      `,
+        [schemaName]
+      ),
+      this.driver.query(
+        `
+        SELECT
+          tc.table_name, tc.constraint_name, tc.constraint_type,
+          kcu.column_name, ccu.table_name AS foreign_table_name,
+          ccu.column_name AS foreign_column_name
+        FROM information_schema.table_constraints tc
+        LEFT JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        LEFT JOIN information_schema.constraint_column_usage ccu
+          ON tc.constraint_name = ccu.constraint_name
+          AND tc.table_schema = ccu.table_schema
+        WHERE tc.table_schema = $1 AND tc.table_name NOT LIKE 'lp_%'
+        ORDER BY tc.table_name, tc.constraint_name
+      `,
+        [schemaName]
+      )
+    ]);
+    return {
+      tables: tables.rows,
+      columns: columns.rows,
+      indexes: indexes.rows,
+      constraints: constraints.rows
+    };
+  }
+  diffTables(source, target) {
+    const diffs = [];
+    const sourceNames = new Set(source.tables.map((t) => t.table_name));
+    const targetNames = new Set(target.tables.map((t) => t.table_name));
+    for (const table of source.tables) {
+      if (!targetNames.has(table.table_name)) {
+        diffs.push({
+          name: table.table_name,
+          action: "added",
+          sourceDefinition: this.getTableDefinition(table.table_name, source)
+        });
+      }
+    }
+    for (const table of target.tables) {
+      if (!sourceNames.has(table.table_name)) {
+        diffs.push({
+          name: table.table_name,
+          action: "removed",
+          targetDefinition: this.getTableDefinition(table.table_name, target)
+        });
+      }
+    }
+    return diffs;
+  }
+  diffColumns(source, target) {
+    const diffs = [];
+    const sourceTableNames = new Set(source.tables.map((t) => t.table_name));
+    const targetTableNames = new Set(target.tables.map((t) => t.table_name));
+    const commonTables = [...sourceTableNames].filter((t) => targetTableNames.has(t));
+    for (const tableName of commonTables) {
+      const sourceCols = source.columns.filter((c) => c.table_name === tableName);
+      const targetCols = target.columns.filter((c) => c.table_name === tableName);
+      const sourceColMap = new Map(sourceCols.map((c) => [c.column_name, c]));
+      const targetColMap = new Map(targetCols.map((c) => [c.column_name, c]));
+      diffs.push(...this.findAddedColumns(tableName, sourceCols, targetColMap));
+      diffs.push(...this.findRemovedColumns(tableName, targetCols, sourceColMap));
+      diffs.push(...this.findModifiedColumns(tableName, sourceCols, targetColMap));
+    }
+    return diffs;
+  }
+  findAddedColumns(tableName, sourceCols, targetColMap) {
+    return sourceCols.filter((col) => !targetColMap.has(col.column_name)).map((col) => ({
+      tableName,
+      columnName: col.column_name,
+      action: "added",
+      sourceType: this.getColumnType(col),
+      sourceNullable: col.is_nullable === "YES",
+      sourceDefault: col.column_default ?? void 0,
+      isBreaking: false
+    }));
+  }
+  findRemovedColumns(tableName, targetCols, sourceColMap) {
+    return targetCols.filter((col) => !sourceColMap.has(col.column_name)).map((col) => ({
+      tableName,
+      columnName: col.column_name,
+      action: "removed",
+      targetType: this.getColumnType(col),
+      targetNullable: col.is_nullable === "YES",
+      targetDefault: col.column_default ?? void 0,
+      isBreaking: true
+    }));
+  }
+  findModifiedColumns(tableName, sourceCols, targetColMap) {
+    const diffs = [];
+    for (const col of sourceCols) {
+      const targetCol = targetColMap.get(col.column_name);
+      if (targetCol && this.hasColumnChanges(col, targetCol)) {
+        const sourceType = this.getColumnType(col);
+        const targetType = this.getColumnType(targetCol);
+        diffs.push({
+          tableName,
+          columnName: col.column_name,
+          action: "modified",
+          sourceType,
+          targetType,
+          sourceNullable: col.is_nullable === "YES",
+          targetNullable: targetCol.is_nullable === "YES",
+          sourceDefault: col.column_default ?? void 0,
+          targetDefault: targetCol.column_default ?? void 0,
+          isBreaking: this.isBreakingTypeChange(sourceType, targetType)
+        });
+      }
+    }
+    return diffs;
+  }
+  diffIndexes(source, target) {
+    const diffs = [];
+    const sourceMap = new Map(source.indexes.map((i) => [`${i.tablename}.${i.indexname}`, i]));
+    const targetMap = new Map(target.indexes.map((i) => [`${i.tablename}.${i.indexname}`, i]));
+    for (const [key, idx] of sourceMap) {
+      if (!targetMap.has(key)) {
+        diffs.push({
+          tableName: idx.tablename,
+          indexName: idx.indexname,
+          action: "added",
+          sourceDefinition: idx.indexdef
+        });
+      }
+    }
+    for (const [key, idx] of targetMap) {
+      if (!sourceMap.has(key)) {
+        diffs.push({
+          tableName: idx.tablename,
+          indexName: idx.indexname,
+          action: "removed",
+          targetDefinition: idx.indexdef
+        });
+      }
+    }
+    for (const [key, sourceIdx] of sourceMap) {
+      const targetIdx = targetMap.get(key);
+      if (targetIdx) {
+        const normalizedSource = this.normalizeIndexDef(sourceIdx.indexdef);
+        const normalizedTarget = this.normalizeIndexDef(targetIdx.indexdef);
+        if (normalizedSource !== normalizedTarget) {
+          diffs.push({
+            tableName: sourceIdx.tablename,
+            indexName: sourceIdx.indexname,
+            action: "modified",
+            sourceDefinition: sourceIdx.indexdef,
+            targetDefinition: targetIdx.indexdef
+          });
+        }
+      }
+    }
+    return diffs;
+  }
+  diffConstraints(source, target) {
+    const diffs = [];
+    const sourceMap = new Map(
+      source.constraints.map((c) => [`${c.table_name}.${c.constraint_name}`, c])
+    );
+    const targetMap = new Map(
+      target.constraints.map((c) => [`${c.table_name}.${c.constraint_name}`, c])
+    );
+    for (const [key, con] of sourceMap) {
+      if (!targetMap.has(key)) {
+        diffs.push({
+          tableName: con.table_name,
+          constraintName: con.constraint_name,
+          constraintType: this.mapConstraintType(con.constraint_type),
+          action: "added",
+          isBreaking: false,
+          sourceDefinition: this.getConstraintDefinition(con)
+        });
+      }
+    }
+    for (const [key, con] of targetMap) {
+      if (!sourceMap.has(key)) {
+        diffs.push({
+          tableName: con.table_name,
+          constraintName: con.constraint_name,
+          constraintType: this.mapConstraintType(con.constraint_type),
+          action: "removed",
+          isBreaking: con.constraint_type !== "CHECK",
+          targetDefinition: this.getConstraintDefinition(con)
+        });
+      }
+    }
+    return diffs;
+  }
+  detectConflicts(columns, constraints) {
+    const conflicts = [];
+    for (const col of columns.filter((c) => c.action === "modified")) {
+      if (col.sourceType !== col.targetType) {
+        conflicts.push({
+          type: "column_type_mismatch",
+          description: `Column ${col.tableName}.${col.columnName} has different types: ${col.sourceType} vs ${col.targetType}`,
+          sourcePath: `${col.tableName}.${col.columnName}`,
+          targetPath: `${col.tableName}.${col.columnName}`,
+          resolution: ["keep_source", "keep_target", "manual"]
+        });
+      }
+    }
+    for (const con of constraints.filter(
+      (c) => c.action === "removed" && c.constraintType === "foreign_key"
+    )) {
+      conflicts.push({
+        type: "constraint_conflict",
+        description: `Foreign key ${con.constraintName} on ${con.tableName} would be removed`,
+        sourcePath: `${con.tableName}.${con.constraintName}`,
+        targetPath: `${con.tableName}.${con.constraintName}`,
+        resolution: ["keep_source", "keep_target", "manual"]
+      });
+    }
+    return conflicts;
+  }
+  generateMigrationSql(sourceSchema, targetSchema, tables, columns, indexes, constraints, direction) {
+    const schema = direction === "forward" ? targetSchema : sourceSchema;
+    const ctx = { sourceSchema, targetSchema, schema, direction };
+    return [
+      ...this.generateTableSql(tables, ctx),
+      ...this.generateColumnSql(columns, ctx),
+      ...this.generateIndexSql(indexes, ctx),
+      ...this.generateConstraintSql(constraints, ctx)
+    ];
+  }
+  generateTableSql(tables, ctx) {
+    const sql = [];
+    for (const table of tables) {
+      const isCreate = ctx.direction === "forward" && table.action === "added" || ctx.direction === "reverse" && table.action === "removed";
+      const isDrop = ctx.direction === "forward" && table.action === "removed" || ctx.direction === "reverse" && table.action === "added";
+      if (isCreate && table.sourceDefinition) {
+        sql.push(table.sourceDefinition.replace(ctx.sourceSchema, ctx.schema));
+      } else if (isDrop) {
+        sql.push(`DROP TABLE IF EXISTS "${ctx.schema}"."${table.name}" CASCADE`);
+      }
+    }
+    return sql;
+  }
+  shouldCreate(action, direction) {
+    return direction === "forward" && action === "added" || direction === "reverse" && action === "removed";
+  }
+  shouldDrop(action, direction) {
+    return direction === "forward" && action === "removed" || direction === "reverse" && action === "added";
+  }
+  generateColumnSql(columns, ctx) {
+    return columns.flatMap((col) => this.generateSingleColumnSql(col, ctx));
+  }
+  generateSingleColumnSql(col, ctx) {
+    const tableName = `"${ctx.schema}"."${col.tableName}"`;
+    if (this.shouldCreate(col.action, ctx.direction)) {
+      const type = ctx.direction === "forward" ? col.sourceType : col.targetType;
+      return [`ALTER TABLE ${tableName} ADD COLUMN "${col.columnName}" ${type}`];
+    }
+    if (this.shouldDrop(col.action, ctx.direction)) {
+      return [`ALTER TABLE ${tableName} DROP COLUMN IF EXISTS "${col.columnName}"`];
+    }
+    if (col.action === "modified") {
+      const type = ctx.direction === "forward" ? col.sourceType : col.targetType;
+      return [`ALTER TABLE ${tableName} ALTER COLUMN "${col.columnName}" TYPE ${type}`];
+    }
+    return [];
+  }
+  generateIndexSql(indexes, ctx) {
+    return indexes.flatMap((idx) => this.generateSingleIndexSql(idx, ctx));
+  }
+  generateSingleIndexSql(idx, ctx) {
+    if (this.shouldCreate(idx.action, ctx.direction)) {
+      const def = ctx.direction === "forward" ? idx.sourceDefinition : idx.targetDefinition;
+      if (def) {
+        return [def.replace(ctx.sourceSchema, ctx.schema).replace(ctx.targetSchema, ctx.schema)];
+      }
+    }
+    if (this.shouldDrop(idx.action, ctx.direction)) {
+      return [`DROP INDEX IF EXISTS "${ctx.schema}"."${idx.indexName}"`];
+    }
+    return [];
+  }
+  generateConstraintSql(constraints, ctx) {
+    return constraints.flatMap((con) => this.generateSingleConstraintSql(con, ctx));
+  }
+  generateSingleConstraintSql(con, ctx) {
+    const tableName = `"${ctx.schema}"."${con.tableName}"`;
+    if (this.shouldCreate(con.action, ctx.direction)) {
+      const def = ctx.direction === "forward" ? con.sourceDefinition : con.targetDefinition;
+      if (def) {
+        return [`ALTER TABLE ${tableName} ADD ${def}`];
+      }
+    }
+    if (this.shouldDrop(con.action, ctx.direction)) {
+      return [`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS "${con.constraintName}"`];
+    }
+    return [];
+  }
+  getTableDefinition(tableName, schema) {
+    const columns = schema.columns.filter((c) => c.table_name === tableName);
+    const colDefs = columns.map((c) => {
+      let def = `"${c.column_name}" ${this.getColumnType(c)}`;
+      if (c.is_nullable === "NO") {
+        def += " NOT NULL";
+      }
+      if (c.column_default) {
+        def += ` DEFAULT ${c.column_default}`;
+      }
+      return def;
+    });
+    return `CREATE TABLE "${tableName}" (
+  ${colDefs.join(",\n  ")}
+)`;
+  }
+  getColumnType(col) {
+    let type = col.data_type;
+    if (col.character_maximum_length) {
+      type = `${col.udt_name}(${col.character_maximum_length})`;
+    } else if (col.numeric_precision && col.numeric_scale !== null) {
+      type = `${col.udt_name}(${col.numeric_precision},${col.numeric_scale})`;
+    } else if (col.udt_name && col.udt_name !== col.data_type) {
+      type = col.udt_name;
+    }
+    return type.toUpperCase();
+  }
+  hasColumnChanges(source, target) {
+    return this.getColumnType(source) !== this.getColumnType(target) || source.is_nullable !== target.is_nullable || source.column_default !== target.column_default;
+  }
+  isBreakingTypeChange(sourceType, targetType) {
+    const breakingChanges = [
+      { from: "TEXT", to: "VARCHAR" },
+      { from: "VARCHAR", to: "INTEGER" },
+      { from: "INTEGER", to: "SMALLINT" },
+      { from: "BIGINT", to: "INTEGER" },
+      { from: "TIMESTAMP", to: "DATE" }
+    ];
+    const source = sourceType.toUpperCase();
+    const target = targetType.toUpperCase();
+    return breakingChanges.some(
+      (change) => source.includes(change.from) && target.includes(change.to)
+    );
+  }
+  normalizeIndexDef(indexdef) {
+    return indexdef.replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").toLowerCase().trim();
+  }
+  mapConstraintType(type) {
+    switch (type) {
+      case "PRIMARY KEY":
+        return "primary_key";
+      case "FOREIGN KEY":
+        return "foreign_key";
+      case "UNIQUE":
+        return "unique";
+      case "CHECK":
+        return "check";
+      default:
+        return "check";
+    }
+  }
+  getConstraintDefinition(con) {
+    if (con.constraint_type === "FOREIGN KEY" && con.foreign_table_name && con.foreign_column_name) {
+      return `CONSTRAINT "${con.constraint_name}" FOREIGN KEY ("${con.column_name}") REFERENCES "${con.foreign_table_name}"("${con.foreign_column_name}")`;
+    }
+    if (con.constraint_type === "PRIMARY KEY") {
+      return `CONSTRAINT "${con.constraint_name}" PRIMARY KEY ("${con.column_name}")`;
+    }
+    if (con.constraint_type === "UNIQUE") {
+      return `CONSTRAINT "${con.constraint_name}" UNIQUE ("${con.column_name}")`;
+    }
+    return `CONSTRAINT "${con.constraint_name}"`;
+  }
+};
+
+// src/branch/migration-merger.ts
+var MigrationMerger = class {
+  driver;
+  mainSchema;
+  migrationsTable;
+  constructor(driver, options = {}) {
+    this.driver = driver;
+    this.mainSchema = options.mainSchema ?? "public";
+    this.migrationsTable = options.migrationsTable ?? "lp_migrations";
+  }
+  async merge(options) {
+    const { sourceBranch, targetBranch, dryRun, conflictResolution } = options;
+    const sourceSchema = await this.resolveSchemaName(sourceBranch);
+    const targetSchema = await this.resolveSchemaName(targetBranch);
+    const differ = new SchemaDiffer(this.driver);
+    const diff = await differ.diff(sourceSchema, targetSchema);
+    if (!diff.hasChanges) {
+      return {
+        success: true,
+        migrationsApplied: 0,
+        conflicts: [],
+        errors: [],
+        rollbackAvailable: false
+      };
+    }
+    if (diff.conflicts.length > 0 && !this.allConflictsResolved(diff.conflicts, conflictResolution)) {
+      return {
+        success: false,
+        migrationsApplied: 0,
+        conflicts: diff.conflicts,
+        errors: ["Unresolved conflicts detected. Provide conflict resolutions."],
+        rollbackAvailable: false
+      };
+    }
+    if (dryRun) {
+      return {
+        success: true,
+        migrationsApplied: diff.forwardSql.length,
+        conflicts: [],
+        errors: [],
+        rollbackAvailable: false
+      };
+    }
+    try {
+      await this.driver.transaction(async (trx) => {
+        for (const sql of diff.forwardSql) {
+          const adjustedSql = sql.replace(
+            new RegExp(`"${sourceSchema}"`, "g"),
+            `"${targetSchema}"`
+          );
+          await trx.execute(adjustedSql);
+        }
+        await trx.execute(
+          `
+          INSERT INTO ${this.quoteIdent(this.migrationsTable)} (
+            version, name, scope, checksum, up_sql, down_sql
+          ) VALUES (
+            EXTRACT(EPOCH FROM NOW())::BIGINT * 1000 + (random() * 1000)::INT,
+            $1,
+            'core',
+            $2,
+            $3,
+            $4
+          )
+        `,
+          [
+            `merge_${sourceBranch}_to_${targetBranch}`,
+            this.computeChecksum(diff.forwardSql),
+            diff.forwardSql,
+            diff.reverseSql
+          ]
+        );
+      });
+      return {
+        success: true,
+        migrationsApplied: diff.forwardSql.length,
+        conflicts: [],
+        errors: [],
+        rollbackAvailable: true
+      };
+    } catch (error) {
+      return {
+        success: false,
+        migrationsApplied: 0,
+        conflicts: [],
+        errors: [error instanceof Error ? error.message : String(error)],
+        rollbackAvailable: false
+      };
+    }
+  }
+  async getPendingMigrations(_sourceBranch, _targetBranch) {
+    const result = await this.driver.query(`
+      SELECT s.version, s.name, s.scope, s.checksum, s.up_sql, s.down_sql, s.applied_at
+      FROM ${this.quoteIdent(this.migrationsTable)} s
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${this.quoteIdent(this.migrationsTable)} t
+        WHERE t.version = s.version
+      )
+      ORDER BY s.version ASC
+    `);
+    return result.rows.map((row) => ({
+      version: typeof row.version === "string" ? Number.parseInt(row.version, 10) : row.version,
+      name: row.name,
+      scope: row.scope,
+      checksum: row.checksum,
+      upSql: typeof row.up_sql === "string" ? JSON.parse(row.up_sql) : row.up_sql,
+      downSql: row.down_sql ? typeof row.down_sql === "string" ? JSON.parse(row.down_sql) : row.down_sql : [],
+      appliedAt: new Date(row.applied_at)
+    }));
+  }
+  async detectMigrationConflicts(migrations, targetBranch) {
+    const conflicts = [];
+    const targetSchema = await this.resolveSchemaName(targetBranch);
+    const tableNames = /* @__PURE__ */ new Set();
+    for (const migration of migrations) {
+      for (const sql of migration.upSql) {
+        const createMatch = sql.match(/CREATE TABLE\s+(?:"[^"]+"\.)?"([^"]+)"/i);
+        const alterMatch = sql.match(/ALTER TABLE\s+(?:"[^"]+"\.)?"([^"]+)"/i);
+        const tableName = createMatch?.[1] || alterMatch?.[1];
+        if (tableName) {
+          tableNames.add(tableName);
+        }
+      }
+    }
+    for (const tableName of tableNames) {
+      const exists = await this.tableExists(targetSchema, tableName);
+      if (exists) {
+        const willBeCreated = migrations.some(
+          (m) => m.upSql.some(
+            (sql) => sql.match(new RegExp(`CREATE TABLE\\s+(?:"[^"]+"\\.)?["']?${tableName}["']?`, "i"))
+          )
+        );
+        if (willBeCreated) {
+          conflicts.push({
+            type: "table_removed",
+            description: `Table ${tableName} already exists in target branch but will be created by migration`,
+            sourcePath: tableName,
+            targetPath: tableName,
+            resolution: ["keep_source", "keep_target", "manual"]
+          });
+        }
+      }
+    }
+    return conflicts;
+  }
+  allConflictsResolved(conflicts, resolution) {
+    if (!resolution) {
+      return conflicts.length === 0;
+    }
+    for (const conflict of conflicts) {
+      const key = conflict.sourcePath;
+      if (!resolution[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  async resolveSchemaName(branchName) {
+    if (branchName === "main" || branchName === "public") {
+      return this.mainSchema;
+    }
+    const result = await this.driver.query(
+      `
+      SELECT schema_name FROM lp_branch_metadata
+      WHERE slug = $1 AND deleted_at IS NULL
+    `,
+      [branchName]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Branch '${branchName}' not found`);
+    }
+    return result.rows[0].schema_name;
+  }
+  async tableExists(schema, tableName) {
+    const result = await this.driver.query(
+      `
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = $1 AND table_name = $2
+      ) as exists
+    `,
+      [schema, tableName]
+    );
+    return result.rows[0]?.exists ?? false;
+  }
+  computeChecksum(statements) {
+    const { createHash: createHash3 } = __require("crypto");
+    return createHash3("sha256").update(statements.join("\n")).digest("hex");
+  }
+  quoteIdent(identifier) {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+};
+
+// src/branch/branch-manager.ts
+var BranchManager = class {
+  driver;
+  mainSchema;
+  branchPrefix;
+  defaultAutoDeleteDays;
+  metadataTable;
+  constructor(options) {
+    this.driver = options.driver;
+    this.mainSchema = options.mainSchemaName ?? "public";
+    this.branchPrefix = options.branchPrefix ?? "branch_";
+    this.defaultAutoDeleteDays = options.defaultAutoDeleteDays ?? 7;
+    this.metadataTable = options.metadataTableName ?? "lp_branch_metadata";
+  }
+  async ensureMetadataTable() {
+    await this.driver.execute(`
+      CREATE TABLE IF NOT EXISTS ${this.quoteIdent(this.metadataTable)} (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(128) NOT NULL,
+        slug VARCHAR(128) NOT NULL UNIQUE,
+        schema_name VARCHAR(128) NOT NULL UNIQUE,
+        parent_branch_id UUID REFERENCES ${this.quoteIdent(this.metadataTable)}(id),
+
+        git_branch VARCHAR(256),
+        pr_number INTEGER,
+        pr_url TEXT,
+
+        status VARCHAR(20) NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'protected', 'stale', 'deleting')),
+        is_protected BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by VARCHAR(256),
+        last_accessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ,
+
+        migration_count INTEGER DEFAULT 0,
+        table_count INTEGER DEFAULT 0,
+        storage_bytes BIGINT DEFAULT 0,
+
+        auto_delete_days INTEGER DEFAULT 7,
+        copy_data BOOLEAN DEFAULT FALSE,
+        pii_masking BOOLEAN DEFAULT TRUE
+      )
+    `);
+    await this.driver.execute(`
+      CREATE INDEX IF NOT EXISTS idx_${this.metadataTable}_status
+      ON ${this.quoteIdent(this.metadataTable)}(status)
+    `);
+    await this.driver.execute(`
+      CREATE INDEX IF NOT EXISTS idx_${this.metadataTable}_parent
+      ON ${this.quoteIdent(this.metadataTable)}(parent_branch_id)
+    `);
+    await this.driver.execute(`
+      CREATE INDEX IF NOT EXISTS idx_${this.metadataTable}_pr
+      ON ${this.quoteIdent(this.metadataTable)}(pr_number)
+    `);
+    await this.driver.execute(`
+      CREATE INDEX IF NOT EXISTS idx_${this.metadataTable}_accessed
+      ON ${this.quoteIdent(this.metadataTable)}(last_accessed_at)
+    `);
+  }
+  async createBranch(options) {
+    await this.ensureMetadataTable();
+    const slug = this.generateSlug(options.name);
+    const schemaName = `${this.branchPrefix}${slug}`;
+    const existing = await this.getBranchBySlug(slug);
+    if (existing) {
+      throw new Error(`Branch '${slug}' already exists`);
+    }
+    const parentBranch = options.parentBranch ? await this.getBranchBySlug(options.parentBranch) : null;
+    const parentSchema = parentBranch?.schemaName ?? this.mainSchema;
+    return await this.driver.transaction(async (trx) => {
+      await trx.execute(`CREATE SCHEMA IF NOT EXISTS ${this.quoteIdent(schemaName)}`);
+      await this.cloneSchemaStructure(trx, parentSchema, schemaName);
+      if (options.copyData) {
+        await this.copyDataWithMasking(trx, parentSchema, schemaName, options.piiMasking ?? true);
+      }
+      const tableCount = await this.getTableCount(trx, schemaName);
+      const result = await trx.query(
+        `
+        INSERT INTO ${this.quoteIdent(this.metadataTable)} (
+          name, slug, schema_name, parent_branch_id,
+          git_branch, pr_number, pr_url,
+          auto_delete_days, copy_data, pii_masking, created_by, table_count
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *
+      `,
+        [
+          options.name,
+          slug,
+          schemaName,
+          parentBranch?.id ?? null,
+          options.gitBranch ?? null,
+          options.prNumber ?? null,
+          options.prUrl ?? null,
+          options.autoDeleteDays ?? this.defaultAutoDeleteDays,
+          options.copyData ?? false,
+          options.piiMasking ?? true,
+          options.createdBy ?? null,
+          tableCount
+        ]
+      );
+      return this.mapBranchRow(result.rows[0]);
+    });
+  }
+  async getBranchBySlug(slug) {
+    const result = await this.driver.query(
+      `
+      SELECT * FROM ${this.quoteIdent(this.metadataTable)}
+      WHERE slug = $1 AND deleted_at IS NULL
+    `,
+      [slug]
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return this.mapBranchRow(result.rows[0]);
+  }
+  async getBranchById(id) {
+    const result = await this.driver.query(
+      `
+      SELECT * FROM ${this.quoteIdent(this.metadataTable)}
+      WHERE id = $1 AND deleted_at IS NULL
+    `,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return this.mapBranchRow(result.rows[0]);
+  }
+  async deleteBranch(branchSlug, force = false) {
+    const branch = await this.getBranchBySlug(branchSlug);
+    if (!branch) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    if (branch.isProtected && !force) {
+      throw new Error(`Branch '${branchSlug}' is protected. Use force=true to delete.`);
+    }
+    await this.driver.transaction(async (trx) => {
+      await trx.execute(
+        `
+        UPDATE ${this.quoteIdent(this.metadataTable)}
+        SET status = 'deleting', deleted_at = NOW()
+        WHERE id = $1
+      `,
+        [branch.id]
+      );
+      await trx.execute(`DROP SCHEMA IF EXISTS ${this.quoteIdent(branch.schemaName)} CASCADE`);
+      await trx.execute(
+        `
+        DELETE FROM ${this.quoteIdent(this.metadataTable)} WHERE id = $1
+      `,
+        [branch.id]
+      );
+    });
+  }
+  async switchBranch(branchSlug) {
+    const branch = await this.getBranchBySlug(branchSlug);
+    if (!branch) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    await this.driver.execute(
+      `
+      UPDATE ${this.quoteIdent(this.metadataTable)}
+      SET last_accessed_at = NOW()
+      WHERE id = $1
+    `,
+      [branch.id]
+    );
+    const searchPath = `${branch.schemaName}, public`;
+    return {
+      connectionString: this.generateConnectionString(branch),
+      searchPath,
+      schemaName: branch.schemaName
+    };
+  }
+  async diffBranches(sourceBranch, targetBranch) {
+    const source = await this.resolveSchemaName(sourceBranch);
+    const target = await this.resolveSchemaName(targetBranch);
+    const differ = new SchemaDiffer(this.driver);
+    return differ.diff(source, target);
+  }
+  async mergeBranch(options) {
+    const merger = new MigrationMerger(this.driver, {
+      mainSchema: this.mainSchema,
+      branchPrefix: this.branchPrefix
+    });
+    const result = await merger.merge(options);
+    if (result.success && options.deleteSourceAfterMerge) {
+      await this.deleteBranch(options.sourceBranch, true);
+    }
+    return result;
+  }
+  async listBranches(filter) {
+    await this.ensureMetadataTable();
+    let sql = `SELECT * FROM ${this.quoteIdent(this.metadataTable)} WHERE deleted_at IS NULL`;
+    const params = [];
+    let paramIndex = 1;
+    if (filter?.status) {
+      sql += ` AND status = $${paramIndex++}`;
+      params.push(filter.status);
+    }
+    if (filter?.parentId) {
+      sql += ` AND parent_branch_id = $${paramIndex++}`;
+      params.push(filter.parentId);
+    }
+    if (filter?.staleDays) {
+      sql += ` AND last_accessed_at < NOW() - INTERVAL '${filter.staleDays} days'`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const result = await this.driver.query(sql, params);
+    return result.rows.map((row) => this.mapBranchRow(row));
+  }
+  async cleanupStaleBranches(options = {}) {
+    await this.ensureMetadataTable();
+    const maxAge = options.maxAgeDays ?? 7;
+    const skipProtected = options.skipProtected ?? true;
+    let sql = `
+      SELECT * FROM ${this.quoteIdent(this.metadataTable)}
+      WHERE deleted_at IS NULL
+        AND last_accessed_at < NOW() - INTERVAL '${maxAge} days'
+        AND status != 'deleting'
+    `;
+    if (skipProtected) {
+      sql += ` AND is_protected = FALSE AND status != 'protected'`;
+    }
+    const result = await this.driver.query(sql);
+    const deleted = [];
+    const skipped = [];
+    for (const row of result.rows) {
+      const branch = this.mapBranchRow(row);
+      if (options.dryRun) {
+        deleted.push(branch.slug);
+      } else {
+        try {
+          await this.deleteBranch(branch.slug, true);
+          deleted.push(branch.slug);
+        } catch (error) {
+          skipped.push(`${branch.slug}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    return { deleted, skipped };
+  }
+  async protectBranch(branchSlug) {
+    const branch = await this.getBranchBySlug(branchSlug);
+    if (!branch) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    await this.driver.execute(
+      `
+      UPDATE ${this.quoteIdent(this.metadataTable)}
+      SET is_protected = TRUE, status = 'protected'
+      WHERE id = $1
+    `,
+      [branch.id]
+    );
+  }
+  async unprotectBranch(branchSlug) {
+    const branch = await this.getBranchBySlug(branchSlug);
+    if (!branch) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    await this.driver.execute(
+      `
+      UPDATE ${this.quoteIdent(this.metadataTable)}
+      SET is_protected = FALSE, status = 'active'
+      WHERE id = $1
+    `,
+      [branch.id]
+    );
+  }
+  async updateBranchStats(branchSlug) {
+    const branch = await this.getBranchBySlug(branchSlug);
+    if (!branch) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    const tableCount = await this.getTableCount(this.driver, branch.schemaName);
+    const storageResult = await this.driver.query(
+      `
+      SELECT COALESCE(sum(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename)))::bigint, 0)::text as storage_bytes
+      FROM pg_tables
+      WHERE schemaname = $1
+    `,
+      [branch.schemaName]
+    );
+    const storageBytes = Number.parseInt(storageResult.rows[0]?.storage_bytes ?? "0", 10);
+    await this.driver.execute(
+      `
+      UPDATE ${this.quoteIdent(this.metadataTable)}
+      SET table_count = $1, storage_bytes = $2
+      WHERE id = $3
+    `,
+      [tableCount, storageBytes, branch.id]
+    );
+  }
+  async cloneSchemaStructure(trx, sourceSchema, targetSchema) {
+    const tablesResult = await trx.query(
+      `
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = $1 AND tablename NOT LIKE 'lp_%'
+    `,
+      [sourceSchema]
+    );
+    for (const { tablename } of tablesResult.rows) {
+      await trx.execute(`
+        CREATE TABLE ${this.quoteIdent(targetSchema)}.${this.quoteIdent(tablename)}
+        (LIKE ${this.quoteIdent(sourceSchema)}.${this.quoteIdent(tablename)}
+         INCLUDING ALL)
+      `);
+    }
+    await this.cloneSequences(trx, sourceSchema, targetSchema);
+    await this.cloneViews(trx, sourceSchema, targetSchema);
+  }
+  async cloneSequences(trx, sourceSchema, targetSchema) {
+    const sequencesResult = await trx.query(
+      `
+      SELECT sequence_name
+      FROM information_schema.sequences
+      WHERE sequence_schema = $1
+    `,
+      [sourceSchema]
+    );
+    for (const { sequence_name } of sequencesResult.rows) {
+      const seqInfo = await trx.query(
+        `
+        SELECT start_value::text, increment_by::text, min_value::text, max_value::text, last_value::text
+        FROM pg_sequences
+        WHERE schemaname = $1 AND sequencename = $2
+      `,
+        [sourceSchema, sequence_name]
+      );
+      if (seqInfo.rows.length > 0) {
+        const seq = seqInfo.rows[0];
+        await trx.execute(`
+          CREATE SEQUENCE IF NOT EXISTS ${this.quoteIdent(targetSchema)}.${this.quoteIdent(sequence_name)}
+          START WITH ${seq.last_value ?? seq.start_value}
+          INCREMENT BY ${seq.increment_by}
+          MINVALUE ${seq.min_value}
+          MAXVALUE ${seq.max_value}
+        `);
+      }
+    }
+  }
+  async cloneViews(trx, sourceSchema, targetSchema) {
+    const viewsResult = await trx.query(
+      `
+      SELECT viewname, definition
+      FROM pg_views
+      WHERE schemaname = $1
+    `,
+      [sourceSchema]
+    );
+    for (const { viewname, definition } of viewsResult.rows) {
+      const adjustedDefinition = definition.replace(
+        new RegExp(`${sourceSchema}\\.`, "g"),
+        `${targetSchema}.`
+      );
+      await trx.execute(`
+        CREATE OR REPLACE VIEW ${this.quoteIdent(targetSchema)}.${this.quoteIdent(viewname)} AS
+        ${adjustedDefinition}
+      `);
+    }
+  }
+  async copyDataWithMasking(trx, sourceSchema, targetSchema, applyMasking) {
+    const tablesResult = await trx.query(
+      `
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = $1 AND tablename NOT LIKE 'lp_%'
+    `,
+      [sourceSchema]
+    );
+    for (const { tablename } of tablesResult.rows) {
+      if (applyMasking) {
+        const columnsResult = await trx.query(
+          `
+          SELECT column_name, data_type
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+          ORDER BY ordinal_position
+        `,
+          [sourceSchema, tablename]
+        );
+        const columnList = columnsResult.rows.map((col) => this.quoteIdent(col.column_name)).join(", ");
+        const selectList = columnsResult.rows.map((col) => {
+          const isPii = this.isPiiColumn(col.column_name);
+          if (isPii && col.data_type === "character varying" || col.data_type === "text") {
+            if (col.column_name.toLowerCase().includes("email")) {
+              return `CASE WHEN ${this.quoteIdent(col.column_name)} IS NOT NULL
+                THEN 'masked_' || substr(md5(${this.quoteIdent(col.column_name)}::text), 1, 8) || '@example.com'
+                ELSE NULL END AS ${this.quoteIdent(col.column_name)}`;
+            }
+            return `CASE WHEN ${this.quoteIdent(col.column_name)} IS NOT NULL
+              THEN 'masked_' || substr(md5(${this.quoteIdent(col.column_name)}::text), 1, 8)
+              ELSE NULL END AS ${this.quoteIdent(col.column_name)}`;
+          }
+          return this.quoteIdent(col.column_name);
+        }).join(", ");
+        await trx.execute(`
+          INSERT INTO ${this.quoteIdent(targetSchema)}.${this.quoteIdent(tablename)} (${columnList})
+          SELECT ${selectList}
+          FROM ${this.quoteIdent(sourceSchema)}.${this.quoteIdent(tablename)}
+        `);
+      } else {
+        await trx.execute(`
+          INSERT INTO ${this.quoteIdent(targetSchema)}.${this.quoteIdent(tablename)}
+          SELECT * FROM ${this.quoteIdent(sourceSchema)}.${this.quoteIdent(tablename)}
+        `);
+      }
+    }
+  }
+  isPiiColumn(columnName) {
+    const piiPatterns = [
+      "email",
+      "phone",
+      "address",
+      "ssn",
+      "social_security",
+      "credit_card",
+      "password",
+      "secret",
+      "token",
+      "first_name",
+      "last_name",
+      "full_name",
+      "name",
+      "dob",
+      "date_of_birth",
+      "ip_address",
+      "ip",
+      "location",
+      "latitude",
+      "longitude"
+    ];
+    const lower = columnName.toLowerCase();
+    return piiPatterns.some((pattern) => lower.includes(pattern));
+  }
+  async getTableCount(client, schemaName) {
+    const result = await client.query(
+      `
+      SELECT COUNT(*)::text as count
+      FROM pg_tables
+      WHERE schemaname = $1 AND tablename NOT LIKE 'lp_%'
+    `,
+      [schemaName]
+    );
+    return Number.parseInt(result.rows[0]?.count ?? "0", 10);
+  }
+  generateSlug(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").substring(0, 100);
+  }
+  quoteIdent(identifier) {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+  async resolveSchemaName(branchName) {
+    if (branchName === "main" || branchName === "public") {
+      return this.mainSchema;
+    }
+    const branch = await this.getBranchBySlug(branchName);
+    if (!branch) {
+      throw new Error(`Branch '${branchName}' not found`);
+    }
+    return branch.schemaName;
+  }
+  generateConnectionString(branch) {
+    const baseUrl = process.env.DATABASE_URL || "";
+    if (!baseUrl) {
+      return `options=-c search_path=${branch.schemaName},public`;
+    }
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set("options", `-c search_path=${branch.schemaName},public`);
+      return url.toString();
+    } catch {
+      return `${baseUrl}?options=-c search_path=${branch.schemaName},public`;
+    }
+  }
+  mapBranchRow(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      schemaName: row.schema_name,
+      parentBranchId: row.parent_branch_id,
+      gitBranch: row.git_branch,
+      prNumber: row.pr_number,
+      prUrl: row.pr_url,
+      status: row.status,
+      isProtected: row.is_protected,
+      createdAt: new Date(row.created_at),
+      createdBy: row.created_by,
+      lastAccessedAt: new Date(row.last_accessed_at),
+      deletedAt: row.deleted_at ? new Date(row.deleted_at) : null,
+      migrationCount: row.migration_count,
+      tableCount: row.table_count,
+      storageBytes: typeof row.storage_bytes === "string" ? Number.parseInt(row.storage_bytes, 10) : row.storage_bytes,
+      autoDeleteDays: row.auto_delete_days,
+      copyData: row.copy_data,
+      piiMasking: row.pii_masking
+    };
+  }
+};
+function createBranchManager(options) {
+  return new BranchManager(options);
+}
+
+// src/branch/connection-manager.ts
+var ConnectionManager = class {
+  driver;
+  mainSchema;
+  branchPrefix;
+  currentSchema;
+  constructor(options) {
+    this.driver = options.driver;
+    this.mainSchema = options.mainSchema ?? "public";
+    this.branchPrefix = options.branchPrefix ?? "branch_";
+    this.currentSchema = this.mainSchema;
+  }
+  async switchToBranch(branchSlug) {
+    const schemaName = await this.getSchemaForBranch(branchSlug);
+    const searchPath = `${schemaName}, public`;
+    await this.driver.execute(`SET search_path TO ${searchPath}`);
+    this.currentSchema = schemaName;
+    await this.updateLastAccessed(branchSlug);
+    return {
+      schemaName,
+      searchPath,
+      connectionString: this.generateConnectionString(schemaName)
+    };
+  }
+  async switchToMain() {
+    const searchPath = `${this.mainSchema}, public`;
+    await this.driver.execute(`SET search_path TO ${searchPath}`);
+    this.currentSchema = this.mainSchema;
+    return {
+      schemaName: this.mainSchema,
+      searchPath,
+      connectionString: this.generateConnectionString(this.mainSchema)
+    };
+  }
+  async withBranch(branchSlug, callback) {
+    const schemaName = await this.getSchemaForBranch(branchSlug);
+    const searchPath = `${schemaName}, public`;
+    return await this.driver.transaction(async (trx) => {
+      await trx.execute(`SET LOCAL search_path TO ${searchPath}`);
+      return callback(trx);
+    });
+  }
+  async withSchema(schemaName, callback) {
+    const searchPath = `${schemaName}, public`;
+    return await this.driver.transaction(async (trx) => {
+      await trx.execute(`SET LOCAL search_path TO ${searchPath}`);
+      return callback(trx);
+    });
+  }
+  getCurrentSchema() {
+    return this.currentSchema;
+  }
+  async getCurrentSearchPath() {
+    const result = await this.driver.query("SHOW search_path");
+    return result.rows[0]?.search_path ?? this.mainSchema;
+  }
+  async validateSchema(schemaName) {
+    const result = await this.driver.query(
+      `
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.schemata
+        WHERE schema_name = $1
+      ) as exists
+    `,
+      [schemaName]
+    );
+    return result.rows[0]?.exists ?? false;
+  }
+  async listAvailableSchemas() {
+    const result = await this.driver.query(
+      `
+      SELECT schema_name
+      FROM information_schema.schemata
+      WHERE schema_name LIKE $1 OR schema_name = $2
+      ORDER BY schema_name
+    `,
+      [`${this.branchPrefix}%`, this.mainSchema]
+    );
+    return result.rows.map((row) => row.schema_name);
+  }
+  generateConnectionString(schemaName) {
+    const baseUrl = process.env.DATABASE_URL || "";
+    if (!baseUrl) {
+      return `options=-c search_path=${schemaName},public`;
+    }
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set("options", `-c search_path=${schemaName},public`);
+      return url.toString();
+    } catch {
+      const separator = baseUrl.includes("?") ? "&" : "?";
+      return `${baseUrl}${separator}options=-c search_path=${schemaName},public`;
+    }
+  }
+  generateEnvVars(schemaName) {
+    return {
+      DATABASE_URL: this.generateConnectionString(schemaName),
+      DB_SCHEMA: schemaName,
+      DB_SEARCH_PATH: `${schemaName}, public`
+    };
+  }
+  async getSchemaForBranch(branchSlug) {
+    if (branchSlug === "main" || branchSlug === "public") {
+      return this.mainSchema;
+    }
+    const result = await this.driver.query(
+      `
+      SELECT schema_name FROM lp_branch_metadata
+      WHERE slug = $1 AND deleted_at IS NULL
+    `,
+      [branchSlug]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Branch '${branchSlug}' not found`);
+    }
+    return result.rows[0].schema_name;
+  }
+  async updateLastAccessed(branchSlug) {
+    await this.driver.execute(
+      `
+      UPDATE lp_branch_metadata
+      SET last_accessed_at = NOW()
+      WHERE slug = $1
+    `,
+      [branchSlug]
+    );
+  }
+};
+function createConnectionManager(options) {
+  return new ConnectionManager(options);
+}
+
+// src/branch/cleanup-scheduler.ts
+var CleanupScheduler = class {
+  driver;
+  intervalMs;
+  defaultMaxAgeDays;
+  skipProtected;
+  metadataTable;
+  onCleanup;
+  onError;
+  intervalId = null;
+  isRunning = false;
+  lastRun = null;
+  history = [];
+  constructor(options) {
+    this.driver = options.driver;
+    this.intervalMs = options.intervalMs ?? 24 * 60 * 60 * 1e3;
+    this.defaultMaxAgeDays = options.defaultMaxAgeDays ?? 7;
+    this.skipProtected = options.skipProtected ?? true;
+    this.metadataTable = options.metadataTable ?? "lp_branch_metadata";
+    this.onCleanup = options.onCleanup;
+    this.onError = options.onError;
+  }
+  start() {
+    if (this.intervalId) {
+      return;
+    }
+    this.runCleanup().catch((error) => {
+      if (this.onError) {
+        this.onError(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    this.intervalId = setInterval(() => {
+      this.runCleanup().catch((error) => {
+        if (this.onError) {
+          this.onError(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    }, this.intervalMs);
+  }
+  stop() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+  isScheduled() {
+    return this.intervalId !== null;
+  }
+  isCurrentlyRunning() {
+    return this.isRunning;
+  }
+  getLastRun() {
+    return this.lastRun;
+  }
+  getHistory(limit = 10) {
+    return this.history.slice(-limit);
+  }
+  async runCleanup(options) {
+    if (this.isRunning) {
+      throw new Error("Cleanup is already running");
+    }
+    this.isRunning = true;
+    const job = {
+      id: this.generateJobId(),
+      startedAt: /* @__PURE__ */ new Date()
+    };
+    try {
+      const result = await this.executeCleanup(options);
+      this.recordSuccess(job, result);
+      return result;
+    } catch (error) {
+      this.recordError(job, error);
+      throw error;
+    } finally {
+      this.isRunning = false;
+    }
+  }
+  async executeCleanup(options) {
+    const maxAge = options?.maxAgeDays ?? this.defaultMaxAgeDays;
+    const staleBranches = await this.getStaleBranches(maxAge);
+    const deleted = [];
+    const skipped = [];
+    for (const branch of staleBranches) {
+      if (options?.dryRun) {
+        deleted.push(branch.slug);
+        continue;
+      }
+      await this.tryDeleteBranch(branch, deleted, skipped);
+    }
+    return { deleted, skipped };
+  }
+  async tryDeleteBranch(branch, deleted, skipped) {
+    try {
+      await this.deleteBranch(branch);
+      deleted.push(branch.slug);
+    } catch (error) {
+      skipped.push(`${branch.slug}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  recordSuccess(job, result) {
+    job.completedAt = /* @__PURE__ */ new Date();
+    job.result = result;
+    this.lastRun = job;
+    this.history.push(job);
+    if (this.history.length > 100) {
+      this.history = this.history.slice(-100);
+    }
+    if (this.onCleanup) {
+      this.onCleanup(result);
+    }
+  }
+  recordError(job, error) {
+    job.completedAt = /* @__PURE__ */ new Date();
+    job.error = error instanceof Error ? error.message : String(error);
+    this.lastRun = job;
+    this.history.push(job);
+    if (this.onError) {
+      this.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+  async getStaleBranches(maxAgeDays) {
+    let sql = `
+      SELECT * FROM ${this.quoteIdent(this.metadataTable)}
+      WHERE deleted_at IS NULL
+        AND last_accessed_at < NOW() - INTERVAL '${maxAgeDays} days'
+        AND status != 'deleting'
+    `;
+    if (this.skipProtected) {
+      sql += ` AND is_protected = FALSE AND status != 'protected'`;
+    }
+    sql += " ORDER BY last_accessed_at ASC";
+    const result = await this.driver.query(sql);
+    return result.rows.map((row) => this.mapBranchRow(row));
+  }
+  async markAsStale(maxAgeDays) {
+    let sql = `
+      UPDATE ${this.quoteIdent(this.metadataTable)}
+      SET status = 'stale'
+      WHERE deleted_at IS NULL
+        AND last_accessed_at < NOW() - INTERVAL '${maxAgeDays} days'
+        AND status = 'active'
+    `;
+    if (this.skipProtected) {
+      sql += " AND is_protected = FALSE";
+    }
+    const result = await this.driver.execute(sql);
+    return result.rowCount;
+  }
+  async getUpcomingCleanups(daysAhead = 7) {
+    const sql = `
+      SELECT *,
+        EXTRACT(DAY FROM (last_accessed_at + (auto_delete_days * INTERVAL '1 day') - NOW())) as days_until_cleanup
+      FROM ${this.quoteIdent(this.metadataTable)}
+      WHERE deleted_at IS NULL
+        AND status != 'protected'
+        AND status != 'deleting'
+        AND is_protected = FALSE
+        AND last_accessed_at + (auto_delete_days * INTERVAL '1 day') < NOW() + INTERVAL '${daysAhead} days'
+      ORDER BY days_until_cleanup ASC
+    `;
+    const result = await this.driver.query(sql);
+    return result.rows.map((row) => ({
+      branch: this.mapBranchRow(row),
+      daysUntilCleanup: Number.parseFloat(row.days_until_cleanup)
+    }));
+  }
+  async deleteBranch(branch) {
+    await this.driver.transaction(async (trx) => {
+      await trx.execute(
+        `
+        UPDATE ${this.quoteIdent(this.metadataTable)}
+        SET status = 'deleting', deleted_at = NOW()
+        WHERE id = $1
+      `,
+        [branch.id]
+      );
+      await trx.execute(`DROP SCHEMA IF EXISTS ${this.quoteIdent(branch.schemaName)} CASCADE`);
+      await trx.execute(
+        `
+        DELETE FROM ${this.quoteIdent(this.metadataTable)} WHERE id = $1
+      `,
+        [branch.id]
+      );
+    });
+  }
+  generateJobId() {
+    return `cleanup_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  }
+  quoteIdent(identifier) {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+  mapBranchRow(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      schemaName: row.schema_name,
+      parentBranchId: row.parent_branch_id,
+      gitBranch: row.git_branch,
+      prNumber: row.pr_number,
+      prUrl: row.pr_url,
+      status: row.status,
+      isProtected: row.is_protected,
+      createdAt: new Date(row.created_at),
+      createdBy: row.created_by,
+      lastAccessedAt: new Date(row.last_accessed_at),
+      deletedAt: row.deleted_at ? new Date(row.deleted_at) : null,
+      migrationCount: row.migration_count,
+      tableCount: row.table_count,
+      storageBytes: typeof row.storage_bytes === "string" ? Number.parseInt(row.storage_bytes, 10) : row.storage_bytes,
+      autoDeleteDays: row.auto_delete_days,
+      copyData: row.copy_data,
+      piiMasking: row.pii_masking
+    };
+  }
+};
+function createCleanupScheduler(options) {
+  return new CleanupScheduler(options);
+}
+
+// src/index.ts
 async function createDb(options) {
   const { createDriver: createDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const { createDbClient: createDbClient2 } = await Promise.resolve().then(() => (init_client(), client_exports));
@@ -3602,7 +5109,10 @@ async function createDb(options) {
   });
 }
 export {
+  BranchManager,
+  CleanupScheduler,
   Column,
+  ConnectionManager,
   DbClient,
   Default,
   DeleteBuilder,
@@ -3612,6 +5122,7 @@ export {
   ManyToMany,
   ManyToOne,
   MigrationCollector,
+  MigrationMerger,
   MigrationRunner,
   ModuleRegistry,
   Nullable,
@@ -3620,6 +5131,7 @@ export {
   PrimaryKey,
   Repository,
   SQLCompiler,
+  SchemaDiffer,
   SchemaRegistry,
   SelectBuilder,
   TableBuilder,
@@ -3636,7 +5148,10 @@ export {
   applyTenantColumns,
   applyTimestampColumns,
   columnToProperty,
+  createBranchManager,
+  createCleanupScheduler,
   createCompiler,
+  createConnectionManager,
   createDb,
   createDbClient,
   createDriver,
