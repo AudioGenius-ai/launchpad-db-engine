@@ -25,7 +25,7 @@ export type {
   SchemaChange,
   DiffSummary,
   MigrationScript,
-  SchemaDiff,
+  SchemaSyncDiff,
   SyncStatus,
   PullOptions,
   PushOptions,

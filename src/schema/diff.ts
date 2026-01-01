@@ -6,7 +6,7 @@ import type {
   SchemaDefinition,
   TableDefinition,
 } from '../types/index.js';
-import type { DiffSummary, MigrationScript, SchemaChange, SchemaDiff } from './types.js';
+import type { DiffSummary, MigrationScript, SchemaChange, SchemaSyncDiff } from './types.js';
 
 export interface SchemaDiffOptions {
   generateMigration?: boolean;
@@ -22,7 +22,7 @@ export class SchemaDiffEngine {
     current: SchemaDefinition | null,
     target: SchemaDefinition,
     options: SchemaDiffOptions = {}
-  ): SchemaDiff {
+  ): SchemaSyncDiff {
     const changes: SchemaChange[] = [];
     const currentTables = new Set(Object.keys(current?.tables ?? {}));
     const targetTables = new Set(Object.keys(target.tables));
@@ -436,7 +436,7 @@ export class SchemaDiffEngine {
     };
   }
 
-  formatDiff(diff: SchemaDiff, format: 'text' | 'json' | 'sql' = 'text'): string {
+  formatDiff(diff: SchemaSyncDiff, format: 'text' | 'json' | 'sql' = 'text'): string {
     if (format === 'json') {
       return JSON.stringify(diff, null, 2);
     }

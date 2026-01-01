@@ -112,7 +112,7 @@ export interface MigrationScript {
   checksum: string;
 }
 
-export interface SchemaDiff {
+export interface SchemaSyncDiff {
   hasDifferences: boolean;
   summary: DiffSummary;
   changes: SchemaChange[];
@@ -156,12 +156,12 @@ export interface DiffOptions {
 
 export interface PullResult {
   applied: boolean;
-  diff: SchemaDiff;
+  diff: SchemaSyncDiff;
 }
 
 export interface PushResult {
   applied: boolean;
-  diff: SchemaDiff;
+  diff: SchemaSyncDiff;
   remoteResult?: RemotePushResult;
 }
 

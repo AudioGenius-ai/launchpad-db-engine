@@ -13,7 +13,7 @@ import {
   type PullResult,
   type PushOptions,
   type PushResult,
-  type SchemaDiff,
+  type SchemaSyncDiff,
   type SyncStatus,
   UserCancelledError,
 } from './types.js';
@@ -178,7 +178,7 @@ export class SchemaSyncService {
     return { applied: remoteResult.success, diff, remoteResult };
   }
 
-  async diff(options: DiffOptions = {}): Promise<SchemaDiff> {
+  async diff(options: DiffOptions = {}): Promise<SchemaSyncDiff> {
     const environment = options.environment ?? 'production';
 
     this.logger.info('Introspecting local schema...');
@@ -206,11 +206,11 @@ export class SchemaSyncService {
     return this.introspector.toSchemaDefinition(introspection);
   }
 
-  formatDiff(diff: SchemaDiff, format: 'text' | 'json' | 'sql' = 'text'): string {
+  formatDiff(diff: SchemaSyncDiff, format: 'text' | 'json' | 'sql' = 'text'): string {
     return this.diffEngine.formatDiff(diff, format);
   }
 
-  private async applyMigration(diff: SchemaDiff): Promise<void> {
+  private async applyMigration(diff: SchemaSyncDiff): Promise<void> {
     if (!diff.migration) return;
 
     if (this.dialect.supportsTransactionalDDL) {
