@@ -14,7 +14,7 @@ import {
   createSchemaSyncService,
 } from '../schema/index.js';
 import { SchemaRegistry } from '../schema/registry.js';
-import { generateTypes } from '../types/generator.js';
+import { generateTypes, generateZodSchemas } from '../types/generator.js';
 import type { SchemaDefinition } from '../types/index.js';
 
 export interface CliConfig {
@@ -160,6 +160,9 @@ export async function generateTypesFromRegistry(
   options: {
     appId?: string;
     outputPath?: string;
+    includeZodSchemas?: boolean;
+    includeInsertTypes?: boolean;
+    includeUpdateTypes?: boolean;
   }
 ): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
@@ -178,7 +181,12 @@ export async function generateTypesFromRegistry(
       schemaMap.set(record.schema_name, record.schema);
     }
 
-    const types = generateTypes(schemaMap);
+    const generatorOptions = {
+      includeInsertTypes: options.includeInsertTypes ?? true,
+      includeUpdateTypes: options.includeUpdateTypes ?? true,
+    };
+
+    const types = generateTypes(schemaMap, generatorOptions);
     const outputPath = options.outputPath ?? config.typesOutputPath ?? './generated/types.ts';
 
     await mkdir(dirname(outputPath), { recursive: true });
@@ -186,6 +194,17 @@ export async function generateTypesFromRegistry(
 
     console.log(`Generated types: ${outputPath}`);
     console.log(`  Schemas: ${Array.from(schemaMap.keys()).join(', ')}`);
+    console.log(`  Insert types: ${generatorOptions.includeInsertTypes ? 'yes' : 'no'}`);
+    console.log(`  Update types: ${generatorOptions.includeUpdateTypes ? 'yes' : 'no'}`);
+
+    if (options.includeZodSchemas) {
+      const zodSchemas = generateZodSchemas(schemaMap, generatorOptions);
+      const zodOutputPath = outputPath.replace(/\.ts$/, '.zod.ts');
+
+      await writeFile(zodOutputPath, zodSchemas, 'utf-8');
+
+      console.log(`Generated Zod schemas: ${zodOutputPath}`);
+    }
   } finally {
     await driver.close();
   }
@@ -195,6 +214,9 @@ export interface WatchOptions {
   appId?: string;
   outputPath?: string;
   debounceMs?: number;
+  includeZodSchemas?: boolean;
+  includeInsertTypes?: boolean;
+  includeUpdateTypes?: boolean;
 }
 
 export async function watchAndGenerateTypes(
@@ -264,7 +286,12 @@ export async function watchAndGenerateTypes(
 
       lastChecksum = newChecksum;
 
-      const types = generateTypes(schemaMap);
+      const generatorOptions = {
+        includeInsertTypes: options.includeInsertTypes ?? true,
+        includeUpdateTypes: options.includeUpdateTypes ?? true,
+      };
+
+      const types = generateTypes(schemaMap, generatorOptions);
       await mkdir(dirname(outputPath), { recursive: true });
       await writeFile(outputPath, types, 'utf-8');
 
@@ -272,6 +299,13 @@ export async function watchAndGenerateTypes(
       console.log(
         `[${new Date().toLocaleTimeString()}] ${reason} - Regenerated types (${schemaNames})`
       );
+
+      if (options.includeZodSchemas) {
+        const zodSchemas = generateZodSchemas(schemaMap, generatorOptions);
+        const zodOutputPath = outputPath.replace(/\.ts$/, '.zod.ts');
+        await writeFile(zodOutputPath, zodSchemas, 'utf-8');
+        console.log(`[${new Date().toLocaleTimeString()}] ${reason} - Regenerated Zod schemas`);
+      }
     } catch (error) {
       console.error(
         `[${new Date().toLocaleTimeString()}] Error regenerating types:`,
