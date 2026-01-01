@@ -919,8 +919,8 @@ var init_sqlite = __esm({
 import { parseArgs } from "util";
 
 // src/cli/index.ts
-import { mkdir, readFile as readFile3, writeFile } from "fs/promises";
-import { dirname, join as join3 } from "path";
+import { mkdir as mkdir2, readFile as readFile4, writeFile as writeFile2 } from "fs/promises";
+import { dirname as dirname2, join as join4 } from "path";
 
 // src/driver/postgresql.ts
 init_health();
@@ -1167,11 +1167,6 @@ async function createDriver(options) {
       throw new Error(`Unsupported dialect: ${dialect}`);
   }
 }
-
-// src/migrations/runner.ts
-import { createHash } from "crypto";
-import { readFile, readdir } from "fs/promises";
-import { join } from "path";
 
 // src/migrations/dialects/mysql.ts
 function compileMysqlDefault(colDef) {
@@ -1635,6 +1630,9 @@ function getDialect(name) {
 }
 
 // src/migrations/runner.ts
+import { createHash } from "crypto";
+import { readFile, readdir } from "fs/promises";
+import { join } from "path";
 var MigrationRunner = class {
   driver;
   dialect;
@@ -2500,6 +2498,12 @@ var ModuleRegistry = class {
   }
 };
 
+// src/remote/auth.ts
+import { mkdir, readFile as readFile3, writeFile } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join as join3 } from "path";
+var DEFAULT_CREDENTIALS_PATH = join3(homedir(), ".launchpad", "credentials.json");
+
 // src/schema/registry.ts
 import { createHash as createHash2 } from "crypto";
 var SchemaRegistry = class {
@@ -2797,6 +2801,12 @@ var SchemaRegistry = class {
   }
 };
 
+// src/schema/diff.ts
+import { createHash as createHash3 } from "crypto";
+
+// src/schema/sync.ts
+import { createHash as createHash4 } from "crypto";
+
 // src/types/generator.ts
 function pascalCase(str) {
   return str.split(/[-_]/).map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join("");
@@ -2960,9 +2970,9 @@ async function verifyMigrations(config, options) {
 async function createMigration(config, options) {
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
   const filename = `${timestamp}__${options.name}.sql`;
-  const dirPath = options.scope === "template" && options.templateKey ? join3(config.migrationsPath, "templates", options.templateKey) : join3(config.migrationsPath, "core");
-  await mkdir(dirPath, { recursive: true });
-  const filePath = join3(dirPath, filename);
+  const dirPath = options.scope === "template" && options.templateKey ? join4(config.migrationsPath, "templates", options.templateKey) : join4(config.migrationsPath, "core");
+  await mkdir2(dirPath, { recursive: true });
+  const filePath = join4(dirPath, filename);
   const content = `-- ${filename}
 -- Created: ${(/* @__PURE__ */ new Date()).toISOString()}
 
@@ -2972,7 +2982,7 @@ async function createMigration(config, options) {
 -- down
 
 `;
-  await writeFile(filePath, content, "utf-8");
+  await writeFile2(filePath, content, "utf-8");
   console.log(`Created migration: ${filePath}`);
 }
 async function generateTypesFromRegistry(config, options) {
@@ -2990,19 +3000,109 @@ async function generateTypesFromRegistry(config, options) {
     }
     const types = generateTypes(schemaMap);
     const outputPath = options.outputPath ?? config.typesOutputPath ?? "./generated/types.ts";
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, types, "utf-8");
+    await mkdir2(dirname2(outputPath), { recursive: true });
+    await writeFile2(outputPath, types, "utf-8");
     console.log(`Generated types: ${outputPath}`);
     console.log(`  Schemas: ${Array.from(schemaMap.keys()).join(", ")}`);
   } finally {
     await driver.close();
   }
 }
+async function watchAndGenerateTypes(config, options) {
+  const { debounceMs = 500 } = options;
+  const outputPath = options.outputPath ?? config.typesOutputPath ?? "./generated/types.ts";
+  let isShuttingDown = false;
+  let debounceTimer = null;
+  let lastChecksum = null;
+  let pollInterval = null;
+  const shutdown = async (driver2) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log("\n\nShutting down watch mode...");
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    if (pollInterval) {
+      clearInterval(pollInterval);
+    }
+    if (driver2) {
+      await driver2.close();
+    }
+    console.log("Watch mode stopped.");
+    process.exit(0);
+  };
+  const computeChecksum = (schemas) => {
+    const content = JSON.stringify(
+      Array.from(schemas.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+    );
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return hash.toString(16);
+  };
+  const regenerateTypes = async (registry2, reason) => {
+    try {
+      const schemas = await registry2.listSchemas(options.appId);
+      if (schemas.length === 0) {
+        console.log(`[${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] No schemas registered`);
+        return;
+      }
+      const schemaMap = /* @__PURE__ */ new Map();
+      for (const record of schemas) {
+        schemaMap.set(record.schema_name, record.schema);
+      }
+      const newChecksum = computeChecksum(schemaMap);
+      if (newChecksum === lastChecksum) {
+        return;
+      }
+      lastChecksum = newChecksum;
+      const types = generateTypes(schemaMap);
+      await mkdir2(dirname2(outputPath), { recursive: true });
+      await writeFile2(outputPath, types, "utf-8");
+      const schemaNames = Array.from(schemaMap.keys()).join(", ");
+      console.log(
+        `[${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${reason} - Regenerated types (${schemaNames})`
+      );
+    } catch (error) {
+      console.error(
+        `[${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] Error regenerating types:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  };
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const registry = new SchemaRegistry(driver);
+  process.on("SIGINT", () => shutdown(driver));
+  process.on("SIGTERM", () => shutdown(driver));
+  console.log("Watching for schema changes...");
+  console.log(`  Output: ${outputPath}`);
+  console.log(`  Debounce: ${debounceMs}ms`);
+  console.log("  Press Ctrl+C to stop\n");
+  await regenerateTypes(registry, "Initial generation");
+  const debouncedRegenerate = (reason) => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(async () => {
+      await regenerateTypes(registry, reason);
+    }, debounceMs);
+  };
+  pollInterval = setInterval(() => {
+    if (!isShuttingDown) {
+      debouncedRegenerate("Schema change detected");
+    }
+  }, 1e3);
+  await new Promise(() => {
+  });
+}
 async function registerSchema(config, options) {
   const driver = await createDriver({ connectionString: config.databaseUrl });
   const registry = new SchemaRegistry(driver);
   try {
-    await readFile3(options.schemaPath, "utf-8");
+    await readFile4(options.schemaPath, "utf-8");
     const schemaModule = await import(options.schemaPath);
     const schema = schemaModule.schema || schemaModule.default;
     if (!schema?.tables) {
@@ -3152,6 +3252,11 @@ Global Options:
   --migrations     Path to migrations directory (default: ./migrations)
   --help           Show this help message
 
+Type Generation Options:
+  --output         Output path for generated types (default: ./generated/types.ts)
+  --watch          Watch for schema changes and regenerate types automatically
+  --debounce-ms    Debounce interval in milliseconds (default: 500)
+
 Module Options:
   --modules-path   Path to modules directory (default: ./migrations/modules)
   --name           Module name
@@ -3170,6 +3275,7 @@ Examples:
   launchpad-db module:list
   launchpad-db module:register --name workflows --display-name "Workflows Engine" --version 1.0.0 --migration-prefix workflows
   launchpad-db types:generate --output ./src/types.ts
+  launchpad-db types:generate --watch --output ./src/types.ts
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -3220,10 +3326,19 @@ async function handleMigrateCreate(config, args) {
   });
 }
 async function handleTypesGenerate(config, args) {
-  await generateTypesFromRegistry(config, {
-    appId: args["app-id"],
-    outputPath: args.output
-  });
+  if (args.watch) {
+    const debounceMs = args["debounce-ms"] ? Number.parseInt(args["debounce-ms"], 10) : 500;
+    await watchAndGenerateTypes(config, {
+      appId: args["app-id"],
+      outputPath: args.output,
+      debounceMs
+    });
+  } else {
+    await generateTypesFromRegistry(config, {
+      appId: args["app-id"],
+      outputPath: args.output
+    });
+  }
 }
 async function handleSchemaRegister(config, args) {
   if (!args["app-id"] || !args.name || !args.version || !args.file) {
@@ -3293,7 +3408,9 @@ function parseCliArgs(args) {
       "migration-prefix": { type: "string" },
       description: { type: "string" },
       dependencies: { type: "string" },
-      "modules-path": { type: "string" }
+      "modules-path": { type: "string" },
+      watch: { type: "boolean", default: false },
+      "debounce-ms": { type: "string" }
     },
     allowPositionals: true
   });
