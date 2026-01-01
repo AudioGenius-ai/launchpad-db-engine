@@ -296,6 +296,71 @@ All drivers implement health checks using a simple ping query:
 
 Health checks are opt-in via `config.healthCheck.enabled = true`.
 
+### Row-Level Security (RLS) Pattern (TASK-404)
+Multi-tenant data isolation using PostgreSQL RLS policies with db-engine context injection:
+
+1. **Context Injection**: `DbClient.transaction()` automatically sets tenant context via `SET LOCAL`
+2. **Policy Design**: RLS policies use `current_setting()` to read context
+3. **CRUD Coverage**: Separate policies for SELECT, INSERT, UPDATE, DELETE operations
+4. **Enforcement**: `FORCE ROW LEVEL SECURITY` ensures policies apply even to table owner
+
+**RLS Policy Template:**
+```sql
+-- SELECT: Filter visible rows
+CREATE POLICY tenant_isolation_select ON table_name FOR SELECT
+  USING (
+    app_id = current_setting('app.current_app_id', true) AND
+    organization_id = current_setting('app.current_org_id', true)
+  );
+
+-- INSERT: Validate new data
+CREATE POLICY tenant_isolation_insert ON table_name FOR INSERT
+  WITH CHECK (
+    app_id = current_setting('app.current_app_id', true) AND
+    organization_id = current_setting('app.current_org_id', true)
+  );
+
+-- UPDATE: Filter + validate
+CREATE POLICY tenant_isolation_update ON table_name FOR UPDATE
+  USING (app_id = current_setting('app.current_app_id', true) AND
+         organization_id = current_setting('app.current_org_id', true))
+  WITH CHECK (app_id = current_setting('app.current_app_id', true) AND
+              organization_id = current_setting('app.current_org_id', true));
+
+-- DELETE: Filter visible rows
+CREATE POLICY tenant_isolation_delete ON table_name FOR DELETE
+  USING (
+    app_id = current_setting('app.current_app_id', true) AND
+    organization_id = current_setting('app.current_org_id', true)
+  );
+```
+
+**Expected RLS Behavior:**
+| Operation | Cross-Tenant Attempt | Result |
+|-----------|---------------------|--------|
+| SELECT | Query other tenant's data | Returns 0 rows (silent filtering) |
+| INSERT | Mismatched tenant columns | WITH CHECK violation error |
+| UPDATE | Target other tenant's rows | Affects 0 rows |
+| DELETE | Target other tenant's rows | Affects 0 rows |
+
+**Testing with RLS:**
+```typescript
+// Helper to execute queries with RLS enforcement
+async function withRLS<T>(
+  tenant: { appId: string; organizationId: string },
+  fn: (trx: Transaction) => Promise<T>
+): Promise<T> {
+  return client.transaction(tenant, async (trx) => {
+    await trx.raw(`SET ROLE ${testRole}`);  // Switch to RLS-enforced role
+    try {
+      return await fn(trx);
+    } finally {
+      await trx.raw('RESET ROLE');
+    }
+  });
+}
+```
+
 ### Retry with Exponential Backoff
 Connection errors automatically retry with exponential backoff and jitter:
 ```typescript
@@ -419,6 +484,11 @@ launchpad-db types:generate --watch --app-id myapp --output ./src/types.ts
 **Decision**: Use polling (1 second interval) against schema registry with checksum-based change detection.
 **Consequence**: Simple and reliable implementation that works across all environments. Minimal overhead due to checksum comparison skipping unchanged schemas. Trade-off: 1 second latency for change detection.
 
+### ADR-009: RLS Testing with Separate Database Role (TASK-404)
+**Context**: Testing RLS policies requires queries to be subject to policy enforcement, but PostgreSQL table owners bypass RLS by default.
+**Decision**: Create a dedicated test role (`test_rls_user`) with no login, grant table permissions, and use `SET ROLE` within transactions to execute queries as that role.
+**Consequence**: Accurate RLS enforcement testing without modifying production code. `FORCE ROW LEVEL SECURITY` on test tables ensures even superuser queries go through RLS when using `SET ROLE`. Role cleanup in `afterAll` prevents test pollution.
+
 ## Test Fixtures
 
 ### SQL Injection Prevention (`tests/fixtures/special-characters.ts`)
@@ -468,6 +538,25 @@ launchpad-db types:generate --watch --app-id myapp --output ./src/types.ts
 ```
 
 ## Recent Changes
+
+- **[TASK-404]**: Added RLS policy enforcement integration tests for PostgreSQL driver
+  - Created comprehensive test suite verifying Row-Level Security enforcement with db-engine
+  - 21 integration tests covering all CRUD operations and transaction contexts
+  - Test categories:
+    - SELECT Enforcement (5 tests): Tenant isolation, cross-tenant filtering, COUNT leakage prevention
+    - INSERT Enforcement (4 tests): WITH CHECK validation, mismatched app_id/organization_id rejection
+    - UPDATE Enforcement (4 tests): Row visibility filtering, 0-row updates for cross-tenant, tenant column change prevention
+    - DELETE Enforcement (3 tests): Tenant-scoped deletion, cross-tenant protection
+    - Transaction Context (5 tests): Multi-operation transactions, rollback isolation, sequential tenant switching
+  - Implemented `withRLS()` helper for testing queries under RLS enforcement
+  - Created test table `test_rls_documents` with FORCE ROW LEVEL SECURITY
+  - Defined 4 RLS policies (SELECT, INSERT, UPDATE, DELETE) using `current_setting()` for context
+  - Test fixtures with TENANT_A (3 docs) and TENANT_B (2 docs) for isolation testing
+  - All tests pass on Node 18, 20, 22 in CI
+  - Files created:
+    - `tests/integration/postgresql-rls.test.ts` - RLS enforcement test suite (555 lines)
+  - Related spec: SPEC-127 (RLS Policy Enforcement Integration Tests)
+  - PR #25: https://github.com/AudioGenius-ai/launchpad-db-engine/pull/25
 
 - **[TASK-397]**: Implemented watch mode for CLI type generation
   - Added `--watch` flag to `types:generate` command for automatic regeneration
