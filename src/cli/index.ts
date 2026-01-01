@@ -191,6 +191,126 @@ export async function generateTypesFromRegistry(
   }
 }
 
+export interface WatchOptions {
+  appId?: string;
+  outputPath?: string;
+  debounceMs?: number;
+}
+
+export async function watchAndGenerateTypes(
+  config: CliConfig,
+  options: WatchOptions
+): Promise<void> {
+  const { debounceMs = 500 } = options;
+  const outputPath = options.outputPath ?? config.typesOutputPath ?? './generated/types.ts';
+
+  let isShuttingDown = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastChecksum: string | null = null;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+  const shutdown = async (driver?: { close: () => Promise<void> }) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log('\n\nShutting down watch mode...');
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    if (pollInterval) {
+      clearInterval(pollInterval);
+    }
+    if (driver) {
+      await driver.close();
+    }
+
+    console.log('Watch mode stopped.');
+    process.exit(0);
+  };
+
+  const computeChecksum = (schemas: Map<string, SchemaDefinition>): string => {
+    const content = JSON.stringify(
+      Array.from(schemas.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+    );
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return hash.toString(16);
+  };
+
+  const regenerateTypes = async (registry: SchemaRegistry, reason: string): Promise<void> => {
+    try {
+      const schemas = await registry.listSchemas(options.appId);
+
+      if (schemas.length === 0) {
+        console.log(`[${new Date().toLocaleTimeString()}] No schemas registered`);
+        return;
+      }
+
+      const schemaMap = new Map<string, SchemaDefinition>();
+      for (const record of schemas) {
+        schemaMap.set(record.schema_name, record.schema);
+      }
+
+      const newChecksum = computeChecksum(schemaMap);
+
+      if (newChecksum === lastChecksum) {
+        return;
+      }
+
+      lastChecksum = newChecksum;
+
+      const types = generateTypes(schemaMap);
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, types, 'utf-8');
+
+      const schemaNames = Array.from(schemaMap.keys()).join(', ');
+      console.log(
+        `[${new Date().toLocaleTimeString()}] ${reason} - Regenerated types (${schemaNames})`
+      );
+    } catch (error) {
+      console.error(
+        `[${new Date().toLocaleTimeString()}] Error regenerating types:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  };
+
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const registry = new SchemaRegistry(driver);
+
+  process.on('SIGINT', () => shutdown(driver));
+  process.on('SIGTERM', () => shutdown(driver));
+
+  console.log('Watching for schema changes...');
+  console.log(`  Output: ${outputPath}`);
+  console.log(`  Debounce: ${debounceMs}ms`);
+  console.log('  Press Ctrl+C to stop\n');
+
+  await regenerateTypes(registry, 'Initial generation');
+
+  const debouncedRegenerate = (reason: string) => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(async () => {
+      await regenerateTypes(registry, reason);
+    }, debounceMs);
+  };
+
+  pollInterval = setInterval(() => {
+    if (!isShuttingDown) {
+      debouncedRegenerate('Schema change detected');
+    }
+  }, 1000);
+
+  await new Promise<void>(() => {});
+}
+
 export async function registerSchema(
   config: CliConfig,
   options: {

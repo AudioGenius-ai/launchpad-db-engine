@@ -1436,23 +1436,23 @@ var init_mongo = __esm({
           pipeline.push({ $match: filter });
         }
         if (ast.joins) {
-          for (const join4 of ast.joins) {
-            const leftCol = join4.on.leftColumn.split(".").pop();
-            const rightCol = join4.on.rightColumn.split(".").pop();
+          for (const join5 of ast.joins) {
+            const leftCol = join5.on.leftColumn.split(".").pop();
+            const rightCol = join5.on.rightColumn.split(".").pop();
             pipeline.push({
               $lookup: {
-                from: join4.table,
+                from: join5.table,
                 localField: leftCol,
                 foreignField: rightCol,
-                as: join4.alias ?? join4.table
+                as: join5.alias ?? join5.table
               }
             });
-            if (join4.type === "INNER") {
-              pipeline.push({ $unwind: `$${join4.alias ?? join4.table}` });
-            } else if (join4.type === "LEFT") {
+            if (join5.type === "INNER") {
+              pipeline.push({ $unwind: `$${join5.alias ?? join5.table}` });
+            } else if (join5.type === "LEFT") {
               pipeline.push({
                 $unwind: {
-                  path: `$${join4.alias ?? join4.table}`,
+                  path: `$${join5.alias ?? join5.table}`,
                   preserveNullAndEmptyArrays: true
                 }
               });
@@ -1721,9 +1721,9 @@ var init_compiler = __esm({
       }
       compileSelectJoins(ast) {
         if (!ast.joins?.length) return "";
-        return ast.joins.map((join4) => {
-          const alias = join4.alias ? ` AS ${this.quoteIdentifier(join4.alias)}` : "";
-          return ` ${join4.type} JOIN ${this.quoteIdentifier(join4.table)}${alias} ON ${this.quoteIdentifier(join4.on.leftColumn)} = ${this.quoteIdentifier(join4.on.rightColumn)}`;
+        return ast.joins.map((join5) => {
+          const alias = join5.alias ? ` AS ${this.quoteIdentifier(join5.alias)}` : "";
+          return ` ${join5.type} JOIN ${this.quoteIdentifier(join5.table)}${alias} ON ${this.quoteIdentifier(join5.on.leftColumn)} = ${this.quoteIdentifier(join5.on.rightColumn)}`;
         }).join("");
       }
       compileSelectWhere(ast, ctx, state) {
@@ -5297,6 +5297,1624 @@ function createMigrationCollector() {
 // src/schema/index.ts
 init_registry();
 
+// src/schema/introspect.ts
+var SchemaIntrospector = class {
+  constructor(driver, dialect) {
+    this.driver = driver;
+    this.dialect = dialect;
+  }
+  async introspect(options = {}) {
+    const tables = await this.introspectTables(options);
+    const enums = await this.introspectEnums();
+    const extensions = await this.introspectExtensions();
+    const databaseVersion = await this.getDatabaseVersion();
+    return {
+      tables,
+      enums,
+      extensions,
+      introspectedAt: /* @__PURE__ */ new Date(),
+      databaseVersion
+    };
+  }
+  async introspectTables(options = {}) {
+    const tableNames = await this.listTables(options);
+    const tables = [];
+    for (const tableName of tableNames) {
+      const table = await this.introspectTable(tableName);
+      tables.push(table);
+    }
+    return tables;
+  }
+  async listTables(options = {}) {
+    const excludePatterns = options.includeLaunchpadTables ? [] : ["lp_%", "pg_%", "sql_%"];
+    const additionalExcludes = options.excludeTables ?? [];
+    let sql;
+    if (this.dialect.name === "postgresql") {
+      sql = `
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `;
+    } else if (this.dialect.name === "mysql") {
+      sql = `
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `;
+    } else {
+      sql = `
+        SELECT name as table_name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+      `;
+    }
+    const result = await this.driver.query(sql);
+    return result.rows.map((row) => row.table_name).filter((name) => {
+      for (const pattern of excludePatterns) {
+        if (pattern.endsWith("%")) {
+          const prefix = pattern.slice(0, -1);
+          if (name.startsWith(prefix)) return false;
+        } else if (name === pattern) {
+          return false;
+        }
+      }
+      for (const exclude of additionalExcludes) {
+        if (name === exclude) return false;
+      }
+      return true;
+    });
+  }
+  async introspectTable(tableName) {
+    const [columns, indexes, foreignKeys, constraints] = await Promise.all([
+      this.introspectColumns(tableName),
+      this.introspectIndexes(tableName),
+      this.introspectForeignKeys(tableName),
+      this.introspectConstraints(tableName)
+    ]);
+    const primaryKey = this.extractPrimaryKey(indexes);
+    return {
+      name: tableName,
+      schema: "public",
+      columns,
+      primaryKey,
+      foreignKeys,
+      indexes: indexes.filter((i) => !i.isPrimary),
+      constraints
+    };
+  }
+  async introspectColumns(tableName) {
+    if (this.dialect.name === "postgresql") {
+      return this.introspectPostgresColumns(tableName);
+    }
+    if (this.dialect.name === "mysql") {
+      return this.introspectMysqlColumns(tableName);
+    }
+    return this.introspectSqliteColumns(tableName);
+  }
+  async introspectPostgresColumns(tableName) {
+    const sql = `
+      SELECT
+        column_name,
+        data_type,
+        udt_name,
+        is_nullable,
+        column_default,
+        character_maximum_length,
+        numeric_precision,
+        numeric_scale,
+        is_identity,
+        identity_generation
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+      ORDER BY ordinal_position
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.column_name,
+      dataType: row.data_type,
+      udtName: row.udt_name,
+      isNullable: row.is_nullable === "YES",
+      defaultValue: row.column_default,
+      maxLength: row.character_maximum_length,
+      numericPrecision: row.numeric_precision,
+      numericScale: row.numeric_scale,
+      isIdentity: row.is_identity === "YES",
+      identityGeneration: row.identity_generation
+    }));
+  }
+  async introspectMysqlColumns(tableName) {
+    const sql = `
+      SELECT
+        column_name,
+        data_type,
+        column_type as udt_name,
+        is_nullable,
+        column_default,
+        character_maximum_length,
+        numeric_precision,
+        numeric_scale,
+        extra
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+      ORDER BY ordinal_position
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.column_name,
+      dataType: row.data_type,
+      udtName: row.udt_name,
+      isNullable: row.is_nullable === "YES",
+      defaultValue: row.column_default,
+      maxLength: row.character_maximum_length,
+      numericPrecision: row.numeric_precision,
+      numericScale: row.numeric_scale,
+      isIdentity: row.extra.includes("auto_increment"),
+      identityGeneration: row.extra.includes("auto_increment") ? "ALWAYS" : null
+    }));
+  }
+  async introspectSqliteColumns(tableName) {
+    const sql = `PRAGMA table_info("${tableName}")`;
+    const result = await this.driver.query(sql);
+    return result.rows.map((row) => ({
+      name: row.name,
+      dataType: row.type.toLowerCase(),
+      udtName: row.type.toLowerCase(),
+      isNullable: row.notnull === 0,
+      defaultValue: row.dflt_value,
+      maxLength: null,
+      numericPrecision: null,
+      numericScale: null,
+      isIdentity: row.pk === 1 && row.type.toLowerCase() === "integer",
+      identityGeneration: row.pk === 1 && row.type.toLowerCase() === "integer" ? "ALWAYS" : null
+    }));
+  }
+  async introspectIndexes(tableName) {
+    if (this.dialect.name === "postgresql") {
+      return this.introspectPostgresIndexes(tableName);
+    }
+    if (this.dialect.name === "mysql") {
+      return this.introspectMysqlIndexes(tableName);
+    }
+    return this.introspectSqliteIndexes(tableName);
+  }
+  async introspectPostgresIndexes(tableName) {
+    const sql = `
+      SELECT
+        i.relname AS index_name,
+        array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) AS columns,
+        ix.indisunique AS is_unique,
+        ix.indisprimary AS is_primary,
+        am.amname AS index_type,
+        pg_get_expr(ix.indexprs, ix.indrelid) AS expression
+      FROM pg_index ix
+      JOIN pg_class i ON ix.indexrelid = i.oid
+      JOIN pg_class t ON ix.indrelid = t.oid
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+      JOIN pg_am am ON i.relam = am.oid
+      WHERE t.relname = $1
+        AND t.relnamespace = 'public'::regnamespace
+      GROUP BY i.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indexprs, ix.indrelid
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.index_name,
+      columns: row.columns,
+      isUnique: row.is_unique,
+      isPrimary: row.is_primary,
+      type: row.index_type,
+      expression: row.expression
+    }));
+  }
+  async introspectMysqlIndexes(tableName) {
+    const sql = `
+      SELECT
+        index_name,
+        GROUP_CONCAT(column_name ORDER BY seq_in_index) as columns,
+        NOT non_unique as is_unique,
+        index_name = 'PRIMARY' as is_primary,
+        index_type
+      FROM information_schema.statistics
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+      GROUP BY index_name, non_unique, index_type
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.index_name,
+      columns: row.columns.split(","),
+      isUnique: row.is_unique,
+      isPrimary: row.is_primary,
+      type: row.index_type.toLowerCase(),
+      expression: null
+    }));
+  }
+  async introspectSqliteIndexes(tableName) {
+    const indexListSql = `PRAGMA index_list("${tableName}")`;
+    const indexList = await this.driver.query(indexListSql);
+    const indexes = [];
+    for (const idx of indexList.rows) {
+      const indexInfoSql = `PRAGMA index_info("${idx.name}")`;
+      const indexInfo = await this.driver.query(indexInfoSql);
+      indexes.push({
+        name: idx.name,
+        columns: indexInfo.rows.map((row) => row.name),
+        isUnique: idx.unique === 1,
+        isPrimary: idx.origin === "pk",
+        type: "btree",
+        expression: null
+      });
+    }
+    return indexes;
+  }
+  async introspectForeignKeys(tableName) {
+    if (this.dialect.name === "postgresql") {
+      return this.introspectPostgresForeignKeys(tableName);
+    }
+    if (this.dialect.name === "mysql") {
+      return this.introspectMysqlForeignKeys(tableName);
+    }
+    return this.introspectSqliteForeignKeys(tableName);
+  }
+  async introspectPostgresForeignKeys(tableName) {
+    const sql = `
+      SELECT
+        tc.constraint_name,
+        array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS columns,
+        ccu.table_name AS referenced_table,
+        array_agg(ccu.column_name ORDER BY kcu.ordinal_position) AS referenced_columns,
+        rc.delete_rule AS on_delete,
+        rc.update_rule AS on_update
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+      JOIN information_schema.referential_constraints rc
+        ON rc.constraint_name = tc.constraint_name
+        AND rc.constraint_schema = tc.table_schema
+      WHERE tc.table_name = $1
+        AND tc.table_schema = 'public'
+        AND tc.constraint_type = 'FOREIGN KEY'
+      GROUP BY tc.constraint_name, ccu.table_name, rc.delete_rule, rc.update_rule
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.constraint_name,
+      columns: row.columns,
+      referencedTable: row.referenced_table,
+      referencedColumns: row.referenced_columns,
+      onDelete: row.on_delete,
+      onUpdate: row.on_update
+    }));
+  }
+  async introspectMysqlForeignKeys(tableName) {
+    const sql = `
+      SELECT
+        constraint_name,
+        GROUP_CONCAT(column_name ORDER BY ordinal_position) as columns,
+        referenced_table_name as referenced_table,
+        GROUP_CONCAT(referenced_column_name ORDER BY ordinal_position) as referenced_columns
+      FROM information_schema.key_column_usage
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND referenced_table_name IS NOT NULL
+      GROUP BY constraint_name, referenced_table_name
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.constraint_name,
+      columns: row.columns.split(","),
+      referencedTable: row.referenced_table,
+      referencedColumns: row.referenced_columns.split(","),
+      onDelete: "NO ACTION",
+      onUpdate: "NO ACTION"
+    }));
+  }
+  async introspectSqliteForeignKeys(tableName) {
+    const sql = `PRAGMA foreign_key_list("${tableName}")`;
+    const result = await this.driver.query(sql);
+    const fkMap = /* @__PURE__ */ new Map();
+    for (const row of result.rows) {
+      if (!fkMap.has(row.id)) {
+        fkMap.set(row.id, {
+          name: `fk_${tableName}_${row.id}`,
+          columns: [],
+          referencedTable: row.table,
+          referencedColumns: [],
+          onDelete: row.on_delete.replace(" ", "_"),
+          onUpdate: row.on_update.replace(" ", "_")
+        });
+      }
+      const fk = fkMap.get(row.id);
+      fk.columns.push(row.from);
+      fk.referencedColumns.push(row.to);
+    }
+    return Array.from(fkMap.values());
+  }
+  async introspectConstraints(tableName) {
+    if (this.dialect.name !== "postgresql") {
+      return [];
+    }
+    const sql = `
+      SELECT
+        con.conname AS constraint_name,
+        CASE con.contype
+          WHEN 'c' THEN 'CHECK'
+          WHEN 'u' THEN 'UNIQUE'
+          WHEN 'p' THEN 'PRIMARY KEY'
+          WHEN 'f' THEN 'FOREIGN KEY'
+          WHEN 'x' THEN 'EXCLUDE'
+        END AS constraint_type,
+        pg_get_constraintdef(con.oid) AS definition
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+      WHERE rel.relname = $1
+        AND nsp.nspname = 'public'
+        AND con.contype = 'c'
+    `;
+    const result = await this.driver.query(sql, [tableName]);
+    return result.rows.map((row) => ({
+      name: row.constraint_name,
+      type: row.constraint_type,
+      definition: row.definition
+    }));
+  }
+  async introspectEnums() {
+    if (this.dialect.name !== "postgresql") {
+      return [];
+    }
+    const sql = `
+      SELECT
+        t.typname AS name,
+        array_agg(e.enumlabel ORDER BY e.enumsortorder) AS values
+      FROM pg_type t
+      JOIN pg_enum e ON t.oid = e.enumtypid
+      JOIN pg_namespace n ON t.typnamespace = n.oid
+      WHERE n.nspname = 'public'
+      GROUP BY t.typname
+    `;
+    const result = await this.driver.query(sql);
+    return result.rows;
+  }
+  async introspectExtensions() {
+    if (this.dialect.name !== "postgresql") {
+      return [];
+    }
+    const sql = `SELECT extname FROM pg_extension WHERE extname != 'plpgsql'`;
+    const result = await this.driver.query(sql);
+    return result.rows.map((row) => row.extname);
+  }
+  async getDatabaseVersion() {
+    if (this.dialect.name === "postgresql") {
+      const result2 = await this.driver.query("SELECT version()");
+      return result2.rows[0]?.version ?? "unknown";
+    }
+    if (this.dialect.name === "mysql") {
+      const result2 = await this.driver.query("SELECT VERSION() as version");
+      return result2.rows[0]?.version ?? "unknown";
+    }
+    const result = await this.driver.query(
+      "SELECT sqlite_version()"
+    );
+    return result.rows[0]?.["sqlite_version()"] ?? "unknown";
+  }
+  extractPrimaryKey(indexes) {
+    const pkIndex = indexes.find((i) => i.isPrimary);
+    return pkIndex?.columns ?? [];
+  }
+  toSchemaDefinition(result) {
+    const tables = {};
+    for (const table of result.tables) {
+      tables[table.name] = this.tableToDefinition(table);
+    }
+    return { tables };
+  }
+  tableToDefinition(table) {
+    const columns = {};
+    for (const col of table.columns) {
+      columns[col.name] = this.columnToDefinition(col, table);
+    }
+    const indexes = table.indexes.map((idx) => ({
+      name: idx.name,
+      columns: idx.columns,
+      unique: idx.isUnique
+    }));
+    return {
+      columns,
+      indexes: indexes.length > 0 ? indexes : void 0,
+      primaryKey: table.primaryKey.length > 1 ? table.primaryKey : void 0
+    };
+  }
+  columnToDefinition(col, table) {
+    const type = this.mapDataTypeToColumnType(col.dataType, col.udtName);
+    const isPrimaryKey = table.primaryKey.length === 1 && table.primaryKey[0] === col.name;
+    const def = {
+      type,
+      nullable: col.isNullable
+    };
+    if (isPrimaryKey) {
+      def.primaryKey = true;
+    }
+    if (col.defaultValue !== null) {
+      def.default = col.defaultValue;
+    }
+    const fk = table.foreignKeys.find(
+      (fk2) => fk2.columns.length === 1 && fk2.columns[0] === col.name
+    );
+    if (fk) {
+      def.references = {
+        table: fk.referencedTable,
+        column: fk.referencedColumns[0],
+        onDelete: fk.onDelete,
+        onUpdate: fk.onUpdate
+      };
+    }
+    if (col.name === "app_id" || col.name === "organization_id") {
+      def.tenant = true;
+    }
+    return def;
+  }
+  mapDataTypeToColumnType(dataType, udtName) {
+    const normalized = dataType.toLowerCase();
+    const udt = udtName.toLowerCase();
+    if (udt === "uuid" || normalized === "uuid") return "uuid";
+    if (normalized.includes("int") && normalized !== "interval") return "integer";
+    if (normalized === "bigint" || udt === "int8") return "bigint";
+    if (normalized.includes("float") || normalized.includes("double") || normalized === "real")
+      return "float";
+    if (normalized.includes("numeric") || normalized.includes("decimal")) return "decimal";
+    if (normalized === "boolean" || normalized === "bool") return "boolean";
+    if (normalized.includes("timestamp") || normalized === "datetime") return "datetime";
+    if (normalized === "date") return "date";
+    if (normalized === "time") return "time";
+    if (normalized === "json" || normalized === "jsonb") return "json";
+    if (normalized === "bytea" || normalized.includes("blob") || normalized === "binary")
+      return "binary";
+    if (normalized === "text" || udt === "text") return "text";
+    return "string";
+  }
+};
+function createSchemaIntrospector(driver, dialect) {
+  return new SchemaIntrospector(driver, dialect);
+}
+
+// src/schema/diff.ts
+import { createHash as createHash3 } from "crypto";
+var SchemaDiffEngine = class {
+  constructor(dialect) {
+    this.dialect = dialect;
+  }
+  computeDiff(current, target, options = {}) {
+    const changes = [];
+    const currentTables = new Set(Object.keys(current?.tables ?? {}));
+    const targetTables = new Set(Object.keys(target.tables));
+    for (const tableName of targetTables) {
+      if (!currentTables.has(tableName)) {
+        const tableChanges = this.generateTableAddChanges(tableName, target.tables[tableName]);
+        changes.push(...tableChanges);
+      }
+    }
+    for (const tableName of currentTables) {
+      if (!targetTables.has(tableName)) {
+        changes.push(this.generateTableDropChange(tableName, current.tables[tableName], options));
+      }
+    }
+    for (const tableName of currentTables) {
+      if (targetTables.has(tableName)) {
+        const columnChanges = this.compareColumns(
+          tableName,
+          current.tables[tableName],
+          target.tables[tableName],
+          options
+        );
+        changes.push(...columnChanges);
+        const indexChanges = this.compareIndexes(
+          tableName,
+          current.tables[tableName],
+          target.tables[tableName]
+        );
+        changes.push(...indexChanges);
+      }
+    }
+    const breakingChanges = changes.filter((c) => c.isBreaking);
+    const summary = this.summarizeChanges(changes);
+    let migration = null;
+    if (options.generateMigration !== false && changes.length > 0) {
+      migration = this.generateMigration(changes, options.migrationName);
+    }
+    return {
+      hasDifferences: changes.length > 0,
+      summary,
+      changes,
+      breakingChanges,
+      migration
+    };
+  }
+  generateTableAddChanges(tableName, table) {
+    const changes = [];
+    const createSql = this.dialect.createTable(tableName, table);
+    const dropSql = this.dialect.dropTable(tableName);
+    changes.push({
+      type: "table_add",
+      tableName,
+      isBreaking: false,
+      description: `Add table "${tableName}"`,
+      upSql: createSql,
+      downSql: dropSql
+    });
+    if (table.indexes) {
+      for (const index of table.indexes) {
+        const indexSql = this.dialect.createIndex(tableName, index);
+        const dropIndexSql = this.dialect.dropIndex(
+          index.name ?? `idx_${tableName}_${index.columns.join("_")}`
+        );
+        changes.push({
+          type: "index_add",
+          tableName,
+          objectName: index.name ?? `idx_${tableName}_${index.columns.join("_")}`,
+          isBreaking: false,
+          description: `Add index on "${tableName}"(${index.columns.join(", ")})`,
+          upSql: indexSql,
+          downSql: dropIndexSql
+        });
+      }
+    }
+    return changes;
+  }
+  generateTableDropChange(tableName, table, options) {
+    const dropSql = this.dialect.dropTable(tableName);
+    const createSql = this.dialect.createTable(tableName, table);
+    return {
+      type: "table_drop",
+      tableName,
+      isBreaking: options.treatTableDropAsBreaking !== false,
+      description: `Drop table "${tableName}"`,
+      upSql: dropSql,
+      downSql: createSql,
+      oldValue: table
+    };
+  }
+  compareColumns(tableName, current, target, options) {
+    const changes = [];
+    const currentCols = new Set(Object.keys(current.columns));
+    const targetCols = new Set(Object.keys(target.columns));
+    for (const colName of targetCols) {
+      if (!currentCols.has(colName)) {
+        const colDef = target.columns[colName];
+        const addSql = this.dialect.addColumn(tableName, colName, colDef);
+        const dropSql = this.dialect.dropColumn(tableName, colName);
+        changes.push({
+          type: "column_add",
+          tableName,
+          objectName: colName,
+          isBreaking: false,
+          description: `Add column "${tableName}"."${colName}"`,
+          upSql: addSql,
+          downSql: dropSql,
+          newValue: colDef
+        });
+        if (colDef.references) {
+          const fkName = `fk_${tableName}_${colName}_${colDef.references.table}`;
+          const addFkSql = this.dialect.addForeignKey(
+            tableName,
+            colName,
+            colDef.references.table,
+            colDef.references.column,
+            colDef.references.onDelete
+          );
+          const dropFkSql = this.dialect.dropForeignKey(tableName, fkName);
+          changes.push({
+            type: "foreign_key_add",
+            tableName,
+            objectName: fkName,
+            isBreaking: false,
+            description: `Add foreign key "${tableName}"."${colName}" -> "${colDef.references.table}"`,
+            upSql: addFkSql,
+            downSql: dropFkSql,
+            newValue: colDef.references
+          });
+        }
+      }
+    }
+    for (const colName of currentCols) {
+      if (!targetCols.has(colName)) {
+        const colDef = current.columns[colName];
+        const dropSql = this.dialect.dropColumn(tableName, colName);
+        const addSql = this.dialect.addColumn(tableName, colName, colDef);
+        changes.push({
+          type: "column_drop",
+          tableName,
+          objectName: colName,
+          isBreaking: options.treatColumnDropAsBreaking !== false,
+          description: `Drop column "${tableName}"."${colName}"`,
+          upSql: dropSql,
+          downSql: addSql,
+          oldValue: colDef
+        });
+      }
+    }
+    for (const colName of currentCols) {
+      if (targetCols.has(colName)) {
+        const currentCol = current.columns[colName];
+        const targetCol = target.columns[colName];
+        if (!this.columnsEqual(currentCol, targetCol)) {
+          const alteration = this.generateColumnAlteration(
+            tableName,
+            colName,
+            currentCol,
+            targetCol
+          );
+          if (alteration) {
+            changes.push(alteration);
+          }
+        }
+      }
+    }
+    return changes;
+  }
+  compareIndexes(tableName, current, target) {
+    const changes = [];
+    const currentIndexes = /* @__PURE__ */ new Map();
+    const targetIndexes = /* @__PURE__ */ new Map();
+    for (const idx of current.indexes ?? []) {
+      const key = idx.name ?? `idx_${tableName}_${idx.columns.join("_")}`;
+      currentIndexes.set(key, idx);
+    }
+    for (const idx of target.indexes ?? []) {
+      const key = idx.name ?? `idx_${tableName}_${idx.columns.join("_")}`;
+      targetIndexes.set(key, idx);
+    }
+    for (const [name, idx] of targetIndexes) {
+      if (!currentIndexes.has(name)) {
+        const addSql = this.dialect.createIndex(tableName, idx);
+        const dropSql = this.dialect.dropIndex(name);
+        changes.push({
+          type: "index_add",
+          tableName,
+          objectName: name,
+          isBreaking: false,
+          description: `Add index "${name}" on "${tableName}"`,
+          upSql: addSql,
+          downSql: dropSql,
+          newValue: idx
+        });
+      }
+    }
+    for (const [name, idx] of currentIndexes) {
+      if (!targetIndexes.has(name)) {
+        const dropSql = this.dialect.dropIndex(name);
+        const addSql = this.dialect.createIndex(tableName, idx);
+        changes.push({
+          type: "index_drop",
+          tableName,
+          objectName: name,
+          isBreaking: false,
+          description: `Drop index "${name}" from "${tableName}"`,
+          upSql: dropSql,
+          downSql: addSql,
+          oldValue: idx
+        });
+      }
+    }
+    return changes;
+  }
+  generateColumnAlteration(tableName, colName, current, target) {
+    const isBreaking = this.isColumnChangeBreaking(current, target);
+    try {
+      const alterSql = this.dialect.alterColumn(tableName, colName, target);
+      const revertSql = this.dialect.alterColumn(tableName, colName, current);
+      return {
+        type: "column_modify",
+        tableName,
+        objectName: colName,
+        isBreaking,
+        description: `Modify column "${tableName}"."${colName}"`,
+        upSql: alterSql,
+        downSql: revertSql,
+        oldValue: current,
+        newValue: target
+      };
+    } catch {
+      return null;
+    }
+  }
+  isColumnChangeBreaking(current, target) {
+    if (target.nullable === false && current.nullable === true) {
+      return true;
+    }
+    const typeOrder = {
+      uuid: 10,
+      boolean: 20,
+      integer: 30,
+      bigint: 40,
+      float: 50,
+      decimal: 60,
+      string: 70,
+      text: 80,
+      date: 90,
+      time: 100,
+      datetime: 110,
+      json: 120,
+      binary: 130
+    };
+    const currentOrder = typeOrder[current.type] ?? 0;
+    const targetOrder = typeOrder[target.type] ?? 0;
+    if (targetOrder < currentOrder) {
+      return true;
+    }
+    return false;
+  }
+  columnsEqual(a, b) {
+    return a.type === b.type && (a.nullable ?? false) === (b.nullable ?? false) && (a.unique ?? false) === (b.unique ?? false) && a.default === b.default && JSON.stringify(a.references) === JSON.stringify(b.references);
+  }
+  summarizeChanges(changes) {
+    const summary = {
+      tablesAdded: 0,
+      tablesDropped: 0,
+      tablesModified: 0,
+      columnsAdded: 0,
+      columnsDropped: 0,
+      columnsModified: 0,
+      indexesAdded: 0,
+      indexesDropped: 0,
+      foreignKeysAdded: 0,
+      foreignKeysDropped: 0
+    };
+    const modifiedTables = /* @__PURE__ */ new Set();
+    for (const change of changes) {
+      switch (change.type) {
+        case "table_add":
+          summary.tablesAdded++;
+          break;
+        case "table_drop":
+          summary.tablesDropped++;
+          break;
+        case "column_add":
+          summary.columnsAdded++;
+          modifiedTables.add(change.tableName);
+          break;
+        case "column_drop":
+          summary.columnsDropped++;
+          modifiedTables.add(change.tableName);
+          break;
+        case "column_modify":
+          summary.columnsModified++;
+          modifiedTables.add(change.tableName);
+          break;
+        case "index_add":
+          summary.indexesAdded++;
+          break;
+        case "index_drop":
+          summary.indexesDropped++;
+          break;
+        case "foreign_key_add":
+          summary.foreignKeysAdded++;
+          break;
+        case "foreign_key_drop":
+          summary.foreignKeysDropped++;
+          break;
+      }
+    }
+    summary.tablesModified = modifiedTables.size;
+    return summary;
+  }
+  generateMigration(changes, name) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+    const migrationName = name ?? "schema_sync";
+    const version = `${timestamp}`;
+    const upSql = changes.map((c) => c.upSql);
+    const downSql = changes.slice().reverse().map((c) => c.downSql);
+    const content = [...upSql, ...downSql].join("\n");
+    const checksum = createHash3("sha256").update(content).digest("hex");
+    return {
+      version,
+      name: migrationName,
+      upSql,
+      downSql,
+      checksum
+    };
+  }
+  formatDiff(diff, format = "text") {
+    if (format === "json") {
+      return JSON.stringify(diff, null, 2);
+    }
+    if (format === "sql") {
+      if (!diff.migration) return "-- No changes";
+      return `-- Up
+${diff.migration.upSql.join(";\n")};
+
+-- Down
+${diff.migration.downSql.join(";\n")};`;
+    }
+    const lines = [];
+    lines.push("\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510");
+    lines.push("\u2502                     Schema Diff: local \u2194 remote                  \u2502");
+    lines.push("\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524");
+    if (!diff.hasDifferences) {
+      lines.push("\u2502  No differences found                                            \u2502");
+      lines.push("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518");
+      return lines.join("\n");
+    }
+    lines.push("\u2502 Summary:                                                          \u2502");
+    if (diff.summary.tablesAdded > 0) {
+      lines.push(
+        `\u2502   + ${diff.summary.tablesAdded} table(s) added                                             \u2502`
+      );
+    }
+    if (diff.summary.tablesDropped > 0) {
+      lines.push(
+        `\u2502   - ${diff.summary.tablesDropped} table(s) dropped (BREAKING)                               \u2502`
+      );
+    }
+    if (diff.summary.columnsAdded > 0) {
+      lines.push(
+        `\u2502   + ${diff.summary.columnsAdded} column(s) added                                            \u2502`
+      );
+    }
+    if (diff.summary.columnsDropped > 0) {
+      lines.push(
+        `\u2502   - ${diff.summary.columnsDropped} column(s) dropped (BREAKING)                              \u2502`
+      );
+    }
+    if (diff.summary.columnsModified > 0) {
+      lines.push(
+        `\u2502   ~ ${diff.summary.columnsModified} column(s) modified                                        \u2502`
+      );
+    }
+    if (diff.summary.indexesAdded > 0) {
+      lines.push(
+        `\u2502   + ${diff.summary.indexesAdded} index(es) added                                             \u2502`
+      );
+    }
+    if (diff.summary.indexesDropped > 0) {
+      lines.push(
+        `\u2502   - ${diff.summary.indexesDropped} index(es) dropped                                          \u2502`
+      );
+    }
+    lines.push("\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524");
+    for (const change of diff.changes) {
+      const prefix = change.type.includes("add") ? "+" : change.type.includes("drop") ? "-" : "~";
+      const breaking = change.isBreaking ? " (BREAKING)" : "";
+      lines.push(`\u2502 ${prefix} ${change.description}${breaking}`);
+    }
+    lines.push("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518");
+    if (diff.breakingChanges.length > 0) {
+      lines.push("");
+      lines.push(
+        `\u26A0\uFE0F  ${diff.breakingChanges.length} breaking change(s) detected. Use --force to apply.`
+      );
+    }
+    return lines.join("\n");
+  }
+};
+function createSchemaDiffEngine(dialect) {
+  return new SchemaDiffEngine(dialect);
+}
+
+// src/schema/sync.ts
+import { createHash as createHash4 } from "crypto";
+
+// src/schema/sync-metadata.ts
+var SyncMetadataManager = class {
+  constructor(driver, dialect, options = {}) {
+    this.driver = driver;
+    this.dialect = dialect;
+    this.tableName = options.tableName ?? "lp_schema_sync";
+  }
+  tableName;
+  async ensureSyncTable() {
+    let sql;
+    if (this.dialect.name === "postgresql") {
+      sql = `
+        CREATE TABLE IF NOT EXISTS "${this.tableName}" (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          app_id TEXT NOT NULL,
+          table_name TEXT NOT NULL,
+          local_checksum TEXT,
+          local_version TEXT,
+          local_updated_at TIMESTAMPTZ,
+          remote_checksum TEXT,
+          remote_version TEXT,
+          remote_updated_at TIMESTAMPTZ,
+          sync_status TEXT NOT NULL DEFAULT 'unknown',
+          last_sync_at TIMESTAMPTZ,
+          last_sync_direction TEXT,
+          last_sync_by TEXT,
+          base_checksum TEXT,
+          conflict_details JSONB,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(app_id, table_name)
+        )
+      `;
+    } else if (this.dialect.name === "mysql") {
+      sql = `
+        CREATE TABLE IF NOT EXISTS \`${this.tableName}\` (
+          id CHAR(36) PRIMARY KEY,
+          app_id VARCHAR(255) NOT NULL,
+          table_name VARCHAR(255) NOT NULL,
+          local_checksum VARCHAR(64),
+          local_version VARCHAR(50),
+          local_updated_at DATETIME,
+          remote_checksum VARCHAR(64),
+          remote_version VARCHAR(50),
+          remote_updated_at DATETIME,
+          sync_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+          last_sync_at DATETIME,
+          last_sync_direction VARCHAR(10),
+          last_sync_by VARCHAR(255),
+          base_checksum VARCHAR(64),
+          conflict_details JSON,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_app_table (app_id, table_name)
+        )
+      `;
+    } else {
+      sql = `
+        CREATE TABLE IF NOT EXISTS "${this.tableName}" (
+          id TEXT PRIMARY KEY,
+          app_id TEXT NOT NULL,
+          table_name TEXT NOT NULL,
+          local_checksum TEXT,
+          local_version TEXT,
+          local_updated_at TEXT,
+          remote_checksum TEXT,
+          remote_version TEXT,
+          remote_updated_at TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'unknown',
+          last_sync_at TEXT,
+          last_sync_direction TEXT,
+          last_sync_by TEXT,
+          base_checksum TEXT,
+          conflict_details TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(app_id, table_name)
+        )
+      `;
+    }
+    await this.driver.execute(sql);
+    if (this.dialect.name === "postgresql") {
+      await this.driver.execute(`
+        CREATE INDEX IF NOT EXISTS idx_${this.tableName}_status
+        ON "${this.tableName}"(app_id, sync_status)
+      `).catch(() => {
+      });
+    }
+  }
+  async getSyncState(appId, tableName) {
+    let sql;
+    let params;
+    if (this.dialect.name === "postgresql") {
+      sql = `SELECT * FROM "${this.tableName}" WHERE app_id = $1 AND table_name = $2`;
+      params = [appId, tableName];
+    } else {
+      sql = `SELECT * FROM ${this.dialect.name === "mysql" ? `\`${this.tableName}\`` : `"${this.tableName}"`} WHERE app_id = ? AND table_name = ?`;
+      params = [appId, tableName];
+    }
+    const result = await this.driver.query(sql, params);
+    if (!result.rows.length) return null;
+    const row = result.rows[0];
+    return {
+      appId: row.app_id,
+      tableName: row.table_name,
+      localChecksum: row.local_checksum,
+      localVersion: row.local_version,
+      localUpdatedAt: row.local_updated_at ? new Date(row.local_updated_at) : null,
+      remoteChecksum: row.remote_checksum,
+      remoteVersion: row.remote_version,
+      remoteUpdatedAt: row.remote_updated_at ? new Date(row.remote_updated_at) : null,
+      syncStatus: row.sync_status,
+      lastSyncAt: row.last_sync_at ? new Date(row.last_sync_at) : null,
+      lastSyncDirection: row.last_sync_direction,
+      lastSyncBy: row.last_sync_by,
+      baseChecksum: row.base_checksum,
+      conflictDetails: typeof row.conflict_details === "string" ? JSON.parse(row.conflict_details) : row.conflict_details
+    };
+  }
+  async getAllSyncStates(appId) {
+    let sql;
+    let params;
+    if (this.dialect.name === "postgresql") {
+      sql = `SELECT * FROM "${this.tableName}" WHERE app_id = $1 ORDER BY table_name`;
+      params = [appId];
+    } else {
+      sql = `SELECT * FROM ${this.dialect.name === "mysql" ? `\`${this.tableName}\`` : `"${this.tableName}"`} WHERE app_id = ? ORDER BY table_name`;
+      params = [appId];
+    }
+    const result = await this.driver.query(sql, params);
+    return result.rows.map((row) => ({
+      appId: row.app_id,
+      tableName: row.table_name,
+      localChecksum: row.local_checksum,
+      localVersion: row.local_version,
+      localUpdatedAt: row.local_updated_at ? new Date(row.local_updated_at) : null,
+      remoteChecksum: row.remote_checksum,
+      remoteVersion: row.remote_version,
+      remoteUpdatedAt: row.remote_updated_at ? new Date(row.remote_updated_at) : null,
+      syncStatus: row.sync_status,
+      lastSyncAt: row.last_sync_at ? new Date(row.last_sync_at) : null,
+      lastSyncDirection: row.last_sync_direction,
+      lastSyncBy: row.last_sync_by,
+      baseChecksum: row.base_checksum,
+      conflictDetails: typeof row.conflict_details === "string" ? JSON.parse(row.conflict_details) : row.conflict_details
+    }));
+  }
+  async updateSyncState(appId, direction, data) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const status = "synced";
+    if (this.dialect.name === "postgresql") {
+      await this.driver.execute(
+        `
+        INSERT INTO "${this.tableName}" (
+          app_id, table_name, local_checksum, local_version, local_updated_at,
+          remote_checksum, remote_version, remote_updated_at, sync_status,
+          last_sync_at, last_sync_direction, last_sync_by, base_checksum
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ON CONFLICT (app_id, table_name) DO UPDATE SET
+          local_checksum = COALESCE($3, "${this.tableName}".local_checksum),
+          local_version = COALESCE($4, "${this.tableName}".local_version),
+          local_updated_at = $5,
+          remote_checksum = COALESCE($6, "${this.tableName}".remote_checksum),
+          remote_version = COALESCE($7, "${this.tableName}".remote_version),
+          remote_updated_at = $8,
+          sync_status = $9,
+          last_sync_at = $10,
+          last_sync_direction = $11,
+          last_sync_by = $12,
+          base_checksum = COALESCE($13, "${this.tableName}".base_checksum),
+          updated_at = NOW()
+        `,
+        [
+          appId,
+          "__global__",
+          data.localChecksum ?? null,
+          data.localVersion ?? null,
+          now,
+          data.remoteChecksum ?? null,
+          data.remoteVersion ?? null,
+          now,
+          status,
+          now,
+          direction,
+          data.syncBy ?? null,
+          data.localChecksum ?? data.remoteChecksum ?? null
+        ]
+      );
+    } else if (this.dialect.name === "mysql") {
+      const id = this.generateUUID();
+      await this.driver.execute(
+        `
+        INSERT INTO \`${this.tableName}\` (
+          id, app_id, table_name, local_checksum, local_version, local_updated_at,
+          remote_checksum, remote_version, remote_updated_at, sync_status,
+          last_sync_at, last_sync_direction, last_sync_by, base_checksum
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          local_checksum = COALESCE(VALUES(local_checksum), local_checksum),
+          local_version = COALESCE(VALUES(local_version), local_version),
+          local_updated_at = VALUES(local_updated_at),
+          remote_checksum = COALESCE(VALUES(remote_checksum), remote_checksum),
+          remote_version = COALESCE(VALUES(remote_version), remote_version),
+          remote_updated_at = VALUES(remote_updated_at),
+          sync_status = VALUES(sync_status),
+          last_sync_at = VALUES(last_sync_at),
+          last_sync_direction = VALUES(last_sync_direction),
+          last_sync_by = VALUES(last_sync_by),
+          base_checksum = COALESCE(VALUES(base_checksum), base_checksum)
+        `,
+        [
+          id,
+          appId,
+          "__global__",
+          data.localChecksum ?? null,
+          data.localVersion ?? null,
+          now,
+          data.remoteChecksum ?? null,
+          data.remoteVersion ?? null,
+          now,
+          status,
+          now,
+          direction,
+          data.syncBy ?? null,
+          data.localChecksum ?? data.remoteChecksum ?? null
+        ]
+      );
+    } else {
+      const id = this.generateUUID();
+      await this.driver.execute(
+        `
+        INSERT OR REPLACE INTO "${this.tableName}" (
+          id, app_id, table_name, local_checksum, local_version, local_updated_at,
+          remote_checksum, remote_version, remote_updated_at, sync_status,
+          last_sync_at, last_sync_direction, last_sync_by, base_checksum,
+          created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        `,
+        [
+          id,
+          appId,
+          "__global__",
+          data.localChecksum ?? null,
+          data.localVersion ?? null,
+          now,
+          data.remoteChecksum ?? null,
+          data.remoteVersion ?? null,
+          now,
+          status,
+          now,
+          direction,
+          data.syncBy ?? null,
+          data.localChecksum ?? data.remoteChecksum ?? null
+        ]
+      );
+    }
+  }
+  async markConflict(appId, tableName, conflictDetails) {
+    const detailsJson = JSON.stringify(conflictDetails);
+    if (this.dialect.name === "postgresql") {
+      await this.driver.execute(
+        `
+        UPDATE "${this.tableName}"
+        SET sync_status = 'conflict', conflict_details = $1, updated_at = NOW()
+        WHERE app_id = $2 AND table_name = $3
+        `,
+        [detailsJson, appId, tableName]
+      );
+    } else {
+      const table = this.dialect.name === "mysql" ? `\`${this.tableName}\`` : `"${this.tableName}"`;
+      await this.driver.execute(
+        `UPDATE ${table} SET sync_status = 'conflict', conflict_details = ? WHERE app_id = ? AND table_name = ?`,
+        [detailsJson, appId, tableName]
+      );
+    }
+  }
+  async detectConflicts(appId) {
+    const states = await this.getAllSyncStates(appId);
+    return states.filter((state) => {
+      if (!state.localChecksum || !state.remoteChecksum || !state.baseChecksum) {
+        return false;
+      }
+      const localChanged = state.localChecksum !== state.baseChecksum;
+      const remoteChanged = state.remoteChecksum !== state.baseChecksum;
+      return localChanged && remoteChanged && state.localChecksum !== state.remoteChecksum;
+    });
+  }
+  generateUUID() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === "x" ? r : r & 3 | 8;
+      return v.toString(16);
+    });
+  }
+};
+function createSyncMetadataManager(driver, dialect, options) {
+  return new SyncMetadataManager(driver, dialect, options);
+}
+
+// src/schema/types.ts
+var SchemaRemoteError = class extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    this.name = "SchemaRemoteError";
+  }
+};
+var BreakingChangeError = class extends Error {
+  constructor(message, changes = []) {
+    super(message);
+    this.changes = changes;
+    this.name = "BreakingChangeError";
+  }
+};
+var ConflictError = class extends Error {
+  constructor(message, conflicts = []) {
+    super(message);
+    this.conflicts = conflicts;
+    this.name = "ConflictError";
+  }
+};
+var AuthenticationError = class extends Error {
+  constructor(message = "Authentication failed. Run `launchpad login` to authenticate.") {
+    super(message);
+    this.name = "AuthenticationError";
+  }
+};
+var UserCancelledError = class extends Error {
+  constructor(message = "Operation cancelled by user.") {
+    super(message);
+    this.name = "UserCancelledError";
+  }
+};
+
+// src/schema/sync.ts
+var defaultLogger = {
+  info: (msg) => console.log(msg),
+  warn: (msg) => console.warn(msg),
+  error: (msg) => console.error(msg)
+};
+var SchemaSyncService = class {
+  constructor(driver, dialect, remoteClient, options, logger = defaultLogger) {
+    this.driver = driver;
+    this.dialect = dialect;
+    this.remoteClient = remoteClient;
+    this.options = options;
+    this.logger = logger;
+    this.introspector = new SchemaIntrospector(driver, dialect);
+    this.diffEngine = new SchemaDiffEngine(dialect);
+    this.syncMetadata = new SyncMetadataManager(driver, dialect);
+  }
+  introspector;
+  diffEngine;
+  syncMetadata;
+  async pull(options = {}) {
+    const environment = options.environment ?? "production";
+    this.logger.info(`Fetching schema from ${environment}...`);
+    await this.syncMetadata.ensureSyncTable();
+    const remote = await this.remoteClient.fetchSchema(environment);
+    this.logger.info("Introspecting local database...");
+    const localIntrospection = await this.introspector.introspect();
+    const localSchema = this.introspector.toSchemaDefinition(localIntrospection);
+    const diff = this.diffEngine.computeDiff(localSchema, remote.schema, {
+      generateMigration: true,
+      migrationName: `sync_pull_${environment}`
+    });
+    if (!diff.hasDifferences) {
+      this.logger.info("Local schema is up to date");
+      return { applied: false, diff };
+    }
+    this.logger.info(this.diffEngine.formatDiff(diff, "text"));
+    if (options.dryRun) {
+      this.logger.info("(dry-run) No changes applied");
+      return { applied: false, diff };
+    }
+    if (diff.breakingChanges.length > 0 && !options.force) {
+      throw new BreakingChangeError(
+        `Pull would make ${diff.breakingChanges.length} breaking change(s). Use --force to apply anyway.`,
+        diff.breakingChanges
+      );
+    }
+    await this.applyMigration(diff);
+    const localChecksum = this.computeSchemaChecksum(localSchema);
+    await this.syncMetadata.updateSyncState(this.options.appId, "pull", {
+      localChecksum,
+      localVersion: diff.migration?.version,
+      remoteChecksum: remote.checksum,
+      remoteVersion: remote.version
+    });
+    this.logger.info("\u2713 Schema updated successfully");
+    return { applied: true, diff };
+  }
+  async push(options = {}) {
+    const environment = options.environment ?? "production";
+    this.logger.info("Introspecting local schema...");
+    await this.syncMetadata.ensureSyncTable();
+    const localIntrospection = await this.introspector.introspect();
+    const localSchema = this.introspector.toSchemaDefinition(localIntrospection);
+    this.logger.info(`Fetching remote schema from ${environment}...`);
+    const remote = await this.remoteClient.fetchSchema(environment);
+    const diff = this.diffEngine.computeDiff(remote.schema, localSchema, {
+      generateMigration: true,
+      migrationName: `sync_push_${environment}`
+    });
+    if (!diff.hasDifferences) {
+      this.logger.info("Remote schema is up to date");
+      return { applied: false, diff };
+    }
+    this.logger.info(this.diffEngine.formatDiff(diff, "text"));
+    if (options.dryRun) {
+      this.logger.info("(dry-run) No changes would be pushed");
+      return { applied: false, diff };
+    }
+    if (environment === "production" && !options.force) {
+      this.logger.warn("\u26A0\uFE0F  You are about to push schema changes to PRODUCTION");
+      this.logger.warn("This operation cannot be automatically undone.");
+      throw new UserCancelledError(
+        "Production push requires --force flag. Review changes carefully before proceeding."
+      );
+    }
+    if (diff.breakingChanges.length > 0 && !options.force) {
+      throw new BreakingChangeError(
+        `Push would make ${diff.breakingChanges.length} breaking change(s). Use --force to apply anyway.`,
+        diff.breakingChanges
+      );
+    }
+    if (!diff.migration) {
+      return { applied: false, diff };
+    }
+    const remoteResult = await this.remoteClient.pushMigration(diff.migration, {
+      environment,
+      dryRun: false,
+      force: options.force
+    });
+    if (remoteResult.success) {
+      const localChecksum = this.computeSchemaChecksum(localSchema);
+      await this.syncMetadata.updateSyncState(this.options.appId, "push", {
+        localChecksum,
+        localVersion: diff.migration.version,
+        remoteChecksum: localChecksum,
+        remoteVersion: diff.migration.version
+      });
+      this.logger.info("\u2713 Schema pushed successfully");
+    } else {
+      this.logger.error("\u2717 Push failed");
+      if (remoteResult.errors) {
+        for (const error of remoteResult.errors) {
+          this.logger.error(`  - ${error}`);
+        }
+      }
+    }
+    return { applied: remoteResult.success, diff, remoteResult };
+  }
+  async diff(options = {}) {
+    const environment = options.environment ?? "production";
+    this.logger.info("Introspecting local schema...");
+    const localIntrospection = await this.introspector.introspect();
+    const localSchema = this.introspector.toSchemaDefinition(localIntrospection);
+    this.logger.info(`Fetching remote schema from ${environment}...`);
+    const remote = await this.remoteClient.fetchSchema(environment);
+    const diff = this.diffEngine.computeDiff(localSchema, remote.schema, {
+      generateMigration: true,
+      migrationName: `diff_${environment}`
+    });
+    return diff;
+  }
+  async getSyncStatus() {
+    await this.syncMetadata.ensureSyncTable();
+    return this.syncMetadata.getSyncState(this.options.appId, "__global__");
+  }
+  async introspectLocal() {
+    const introspection = await this.introspector.introspect();
+    return this.introspector.toSchemaDefinition(introspection);
+  }
+  formatDiff(diff, format = "text") {
+    return this.diffEngine.formatDiff(diff, format);
+  }
+  async applyMigration(diff) {
+    if (!diff.migration) return;
+    if (this.dialect.supportsTransactionalDDL) {
+      await this.driver.transaction(async (trx) => {
+        for (const sql of diff.migration.upSql) {
+          await trx.execute(sql);
+        }
+      });
+    } else {
+      for (const sql of diff.migration.upSql) {
+        await this.driver.execute(sql);
+      }
+    }
+  }
+  computeSchemaChecksum(schema) {
+    const normalized = JSON.stringify(schema, Object.keys(schema).sort());
+    return createHash4("sha256").update(normalized).digest("hex");
+  }
+};
+function createSchemaSyncService(driver, dialect, remoteClient, options, logger) {
+  return new SchemaSyncService(driver, dialect, remoteClient, options, logger);
+}
+
+// src/remote/client.ts
+var SchemaRemoteClient = class {
+  apiUrl;
+  projectId;
+  authToken;
+  timeout;
+  retries;
+  schemaCache = /* @__PURE__ */ new Map();
+  CACHE_TTL = 5 * 60 * 1e3;
+  constructor(config, options = {}) {
+    this.apiUrl = config.apiUrl.replace(/\/$/, "");
+    this.projectId = config.projectId;
+    this.authToken = config.authToken;
+    this.timeout = options.timeout ?? 3e4;
+    this.retries = options.retries ?? 3;
+  }
+  async fetchSchema(environment = "production") {
+    const cacheKey = `${this.projectId}-${environment}`;
+    const cached = this.schemaCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < this.CACHE_TTL) {
+      return cached.schema;
+    }
+    const response = await this.request(
+      "GET",
+      `/v1/projects/${this.projectId}/schema`,
+      void 0,
+      { "X-Environment": environment }
+    );
+    this.schemaCache.set(cacheKey, {
+      schema: response,
+      cachedAt: Date.now()
+    });
+    return response;
+  }
+  async pushMigration(migration, options = {}) {
+    const environment = options.environment ?? "production";
+    this.schemaCache.delete(`${this.projectId}-${environment}`);
+    return this.request(
+      "POST",
+      `/v1/projects/${this.projectId}/schema/migrations`,
+      {
+        migration,
+        dryRun: options.dryRun ?? false,
+        force: options.force ?? false
+      },
+      { "X-Environment": environment }
+    );
+  }
+  async getSyncStatus(environment = "production") {
+    return this.request(
+      "GET",
+      `/v1/projects/${this.projectId}/schema/sync-status`,
+      void 0,
+      { "X-Environment": environment }
+    );
+  }
+  async healthCheck() {
+    return this.request("GET", "/v1/health");
+  }
+  clearCache() {
+    this.schemaCache.clear();
+  }
+  async request(method, path, body, additionalHeaders) {
+    const url = `${this.apiUrl}${path}`;
+    const headers = {
+      Authorization: `Bearer ${this.authToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...additionalHeaders
+    };
+    let lastError = null;
+    for (let attempt = 0; attempt < this.retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : void 0,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new AuthenticationError("Invalid or expired authentication token.");
+          }
+          if (response.status === 403) {
+            throw new SchemaRemoteError("Permission denied. Check your API key permissions.", 403);
+          }
+          if (response.status === 404) {
+            throw new SchemaRemoteError(`Project not found: ${this.projectId}`, 404);
+          }
+          if (response.status >= 500 && attempt < this.retries - 1) {
+            await this.delay(2 ** attempt * 1e3);
+            continue;
+          }
+          const errorBody = await response.text();
+          let errorMessage;
+          try {
+            const parsed = JSON.parse(errorBody);
+            errorMessage = parsed.message || parsed.error || errorBody;
+          } catch {
+            errorMessage = errorBody || response.statusText;
+          }
+          throw new SchemaRemoteError(errorMessage, response.status);
+        }
+        return await response.json();
+      } catch (error) {
+        if (error instanceof AuthenticationError || error instanceof SchemaRemoteError) {
+          throw error;
+        }
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (error instanceof Error && error.name === "AbortError") {
+          lastError = new SchemaRemoteError(`Request timeout after ${this.timeout}ms`);
+        }
+        if (attempt < this.retries - 1) {
+          await this.delay(2 ** attempt * 1e3);
+        }
+      }
+    }
+    throw lastError ?? new SchemaRemoteError("Request failed after retries");
+  }
+  delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+};
+function createSchemaRemoteClient(config, options) {
+  return new SchemaRemoteClient(config, options);
+}
+
+// src/remote/auth.ts
+import { mkdir, readFile as readFile3, writeFile } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join as join3 } from "path";
+var DEFAULT_CREDENTIALS_PATH = join3(homedir(), ".launchpad", "credentials.json");
+var AuthHandler = class {
+  credentialsPath;
+  cachedCredentials = null;
+  constructor(config = {}) {
+    this.credentialsPath = config.credentialsPath ?? DEFAULT_CREDENTIALS_PATH;
+  }
+  async getToken() {
+    const credentials = await this.loadCredentials();
+    if (!credentials?.token) {
+      throw new AuthenticationError(
+        "No authentication token found. Run `launchpad login` to authenticate."
+      );
+    }
+    if (credentials.expiresAt) {
+      const expiresAt = new Date(credentials.expiresAt);
+      if (expiresAt <= /* @__PURE__ */ new Date()) {
+        if (credentials.refreshToken) {
+          return this.refreshToken(credentials.refreshToken);
+        }
+        throw new AuthenticationError(
+          "Authentication token has expired. Run `launchpad login` to re-authenticate."
+        );
+      }
+    }
+    return credentials.token;
+  }
+  async getProjectId() {
+    const credentials = await this.loadCredentials();
+    return credentials?.projectId;
+  }
+  async saveCredentials(credentials) {
+    await mkdir(dirname(this.credentialsPath), { recursive: true });
+    await writeFile(this.credentialsPath, JSON.stringify(credentials, null, 2), "utf-8");
+    this.cachedCredentials = credentials;
+  }
+  async clearCredentials() {
+    try {
+      await writeFile(this.credentialsPath, "{}", "utf-8");
+      this.cachedCredentials = null;
+    } catch {
+    }
+  }
+  async isAuthenticated() {
+    try {
+      await this.getToken();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async loadCredentials() {
+    if (this.cachedCredentials) {
+      return this.cachedCredentials;
+    }
+    try {
+      const content = await readFile3(this.credentialsPath, "utf-8");
+      this.cachedCredentials = JSON.parse(content);
+      return this.cachedCredentials;
+    } catch {
+      return null;
+    }
+  }
+  async refreshToken(_refreshToken) {
+    throw new AuthenticationError(
+      "Token refresh not implemented. Run `launchpad login` to re-authenticate."
+    );
+  }
+};
+function createAuthHandler(config) {
+  return new AuthHandler(config);
+}
+
 // src/types/generator.ts
 function pascalCase(str) {
   return str.split(/[-_]/).map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join("");
@@ -5443,7 +7061,7 @@ init_client();
 init_tenant_validation();
 
 // src/seed/base.ts
-var defaultLogger = {
+var defaultLogger2 = {
   info: (msg) => console.log(msg),
   warn: (msg) => console.warn(msg),
   error: (msg) => console.error(msg)
@@ -5456,7 +7074,7 @@ var Seeder = class {
   logger;
   constructor(driver, logger) {
     this.driver = driver;
-    this.logger = logger ?? defaultLogger;
+    this.logger = logger ?? defaultLogger2;
   }
   async rollback() {
     throw new Error("Rollback not implemented");
@@ -5482,8 +7100,8 @@ var Seeder = class {
 };
 
 // src/seed/loader.ts
-import { readFile as readFile3, readdir as readdir3 } from "fs/promises";
-import { basename, join as join3 } from "path";
+import { readFile as readFile4, readdir as readdir3 } from "fs/promises";
+import { basename, join as join4 } from "path";
 import { pathToFileURL } from "url";
 
 // src/seed/sql-adapter.ts
@@ -5634,7 +7252,7 @@ var SeedLoader = class {
     }
   }
   async loadTypeScriptSeeder(filename) {
-    const fullPath = join3(this.seedsPath, filename);
+    const fullPath = join4(this.seedsPath, filename);
     const fileUrl = pathToFileURL(fullPath).href;
     const module = await import(fileUrl);
     const SeederClass = module.default;
@@ -5654,8 +7272,8 @@ var SeedLoader = class {
     };
   }
   async loadSqlSeeder(filename) {
-    const fullPath = join3(this.seedsPath, filename);
-    const sqlContent = await readFile3(fullPath, "utf-8");
+    const fullPath = join4(this.seedsPath, filename);
+    const sqlContent = await readFile4(fullPath, "utf-8");
     const name = this.extractName(filename);
     const order = this.extractOrderFromFilename(filename);
     return {
@@ -5821,7 +7439,7 @@ var SeedTracker = class {
 };
 
 // src/seed/runner.ts
-var defaultLogger2 = {
+var defaultLogger3 = {
   info: (msg) => console.log(msg),
   warn: (msg) => console.warn(msg),
   error: (msg) => console.error(msg)
@@ -5837,7 +7455,7 @@ var SeedRunner = class {
     this.dialect = getDialect(driver.dialect);
     this.loader = new SeedLoader({ seedsPath: options.seedsPath });
     this.tracker = new SeedTracker(driver, { tableName: options.tableName });
-    this.logger = defaultLogger2;
+    this.logger = defaultLogger3;
   }
   async run(options = {}) {
     if (process.env.NODE_ENV === "production" && !options.allowProduction) {
@@ -6646,8 +8264,8 @@ var MigrationMerger = class {
     return result.rows[0]?.exists ?? false;
   }
   computeChecksum(statements) {
-    const { createHash: createHash3 } = __require("crypto");
-    return createHash3("sha256").update(statements.join("\n")).digest("hex");
+    const { createHash: createHash5 } = __require("crypto");
+    return createHash5("sha256").update(statements.join("\n")).digest("hex");
   }
   quoteIdent(identifier) {
     return `"${identifier.replace(/"/g, '""')}"`;
@@ -7525,9 +9143,13 @@ async function createDb(options) {
   });
 }
 export {
+  AuthHandler,
+  AuthenticationError,
   BranchManager,
+  BreakingChangeError,
   CleanupScheduler,
   Column,
+  ConflictError,
   ConnectionManager,
   DbClient,
   Default,
@@ -7548,14 +9170,20 @@ export {
   QueryTracker,
   Repository,
   SQLCompiler,
+  SchemaDiffEngine,
   SchemaDiffer,
+  SchemaIntrospector,
   SchemaRegistry,
+  SchemaRemoteClient,
+  SchemaRemoteError,
+  SchemaSyncService,
   SeedLoader,
   SeedRunner,
   SeedTracker,
   Seeder,
   SelectBuilder,
   SqlSeederAdapter,
+  SyncMetadataManager,
   TableBuilder,
   TenantColumn,
   TenantContextError,
@@ -7565,11 +9193,13 @@ export {
   TransactionContext,
   Unique,
   UpdateBuilder,
+  UserCancelledError,
   WithTenantColumns,
   WithTimestamps,
   applyTenantColumns,
   applyTimestampColumns,
   columnToProperty,
+  createAuthHandler,
   createBranchManager,
   createCleanupScheduler,
   createCompiler,
@@ -7583,8 +9213,13 @@ export {
   createModuleRegistry,
   createPoolMonitor,
   createRepository,
+  createSchemaDiffEngine,
+  createSchemaIntrospector,
   createSchemaRegistry,
+  createSchemaRemoteClient,
+  createSchemaSyncService,
   createSeedRunner,
+  createSyncMetadataManager,
   createTimeoutPromise,
   detectDialect,
   extractSchemaFromEntities,

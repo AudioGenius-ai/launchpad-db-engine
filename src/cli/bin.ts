@@ -11,6 +11,7 @@ import {
   runMigrations,
   runModuleMigrations,
   verifyMigrations,
+  watchAndGenerateTypes,
 } from './index.js';
 
 interface ParsedArgs {
@@ -31,6 +32,8 @@ interface ParsedArgs {
   description?: string;
   dependencies?: string;
   'modules-path'?: string;
+  watch?: boolean;
+  'debounce-ms'?: string;
 }
 
 interface Config {
@@ -64,6 +67,11 @@ Global Options:
   --migrations     Path to migrations directory (default: ./migrations)
   --help           Show this help message
 
+Type Generation Options:
+  --output         Output path for generated types (default: ./generated/types.ts)
+  --watch          Watch for schema changes and regenerate types automatically
+  --debounce-ms    Debounce interval in milliseconds (default: 500)
+
 Module Options:
   --modules-path   Path to modules directory (default: ./migrations/modules)
   --name           Module name
@@ -82,6 +90,7 @@ Examples:
   launchpad-db module:list
   launchpad-db module:register --name workflows --display-name "Workflows Engine" --version 1.0.0 --migration-prefix workflows
   launchpad-db types:generate --output ./src/types.ts
+  launchpad-db types:generate --watch --output ./src/types.ts
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -139,10 +148,19 @@ async function handleMigrateCreate(config: Config, args: ParsedArgs): Promise<vo
 }
 
 async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<void> {
-  await generateTypesFromRegistry(config, {
-    appId: args['app-id'],
-    outputPath: args.output,
-  });
+  if (args.watch) {
+    const debounceMs = args['debounce-ms'] ? Number.parseInt(args['debounce-ms'], 10) : 500;
+    await watchAndGenerateTypes(config, {
+      appId: args['app-id'],
+      outputPath: args.output,
+      debounceMs,
+    });
+  } else {
+    await generateTypesFromRegistry(config, {
+      appId: args['app-id'],
+      outputPath: args.output,
+    });
+  }
 }
 
 async function handleSchemaRegister(config: Config, args: ParsedArgs): Promise<void> {
@@ -219,6 +237,8 @@ function parseCliArgs(args: string[]): ParsedArgs {
       description: { type: 'string' },
       dependencies: { type: 'string' },
       'modules-path': { type: 'string' },
+      watch: { type: 'boolean', default: false },
+      'debounce-ms': { type: 'string' },
     },
     allowPositionals: true,
   });

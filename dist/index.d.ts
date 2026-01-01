@@ -956,6 +956,375 @@ declare class MigrationCollector {
 }
 declare function createMigrationCollector(): MigrationCollector;
 
+interface IntrospectedColumn {
+    name: string;
+    dataType: string;
+    udtName: string;
+    isNullable: boolean;
+    defaultValue: string | null;
+    maxLength: number | null;
+    numericPrecision: number | null;
+    numericScale: number | null;
+    isIdentity: boolean;
+    identityGeneration: 'ALWAYS' | 'BY DEFAULT' | null;
+}
+interface IntrospectedIndex {
+    name: string;
+    columns: string[];
+    isUnique: boolean;
+    isPrimary: boolean;
+    type: 'btree' | 'hash' | 'gin' | 'gist' | 'brin';
+    expression: string | null;
+}
+interface IntrospectedForeignKey {
+    name: string;
+    columns: string[];
+    referencedTable: string;
+    referencedColumns: string[];
+    onDelete: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+    onUpdate: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+}
+interface IntrospectedConstraint {
+    name: string;
+    type: 'CHECK' | 'UNIQUE' | 'PRIMARY KEY' | 'FOREIGN KEY' | 'EXCLUDE';
+    definition: string;
+}
+interface IntrospectedTable {
+    name: string;
+    schema: string;
+    columns: IntrospectedColumn[];
+    primaryKey: string[];
+    foreignKeys: IntrospectedForeignKey[];
+    indexes: IntrospectedIndex[];
+    constraints: IntrospectedConstraint[];
+}
+interface IntrospectedEnum {
+    name: string;
+    values: string[];
+}
+interface SchemaIntrospectionResult {
+    tables: IntrospectedTable[];
+    enums: IntrospectedEnum[];
+    extensions: string[];
+    introspectedAt: Date;
+    databaseVersion: string;
+}
+interface IntrospectOptions {
+    schemaPattern?: string;
+    excludeTables?: string[];
+    includeLaunchpadTables?: boolean;
+}
+type ChangeType = 'table_add' | 'table_drop' | 'column_add' | 'column_drop' | 'column_modify' | 'index_add' | 'index_drop' | 'constraint_add' | 'constraint_drop' | 'foreign_key_add' | 'foreign_key_drop';
+interface SchemaChange {
+    type: ChangeType;
+    tableName: string;
+    objectName?: string;
+    isBreaking: boolean;
+    description: string;
+    upSql: string;
+    downSql: string;
+    oldValue?: unknown;
+    newValue?: unknown;
+}
+interface DiffSummary {
+    tablesAdded: number;
+    tablesDropped: number;
+    tablesModified: number;
+    columnsAdded: number;
+    columnsDropped: number;
+    columnsModified: number;
+    indexesAdded: number;
+    indexesDropped: number;
+    foreignKeysAdded: number;
+    foreignKeysDropped: number;
+}
+interface MigrationScript {
+    version: string;
+    name: string;
+    upSql: string[];
+    downSql: string[];
+    checksum: string;
+}
+interface SchemaSyncDiff {
+    hasDifferences: boolean;
+    summary: DiffSummary;
+    changes: SchemaChange[];
+    breakingChanges: SchemaChange[];
+    migration: MigrationScript | null;
+}
+interface SyncStatus {
+    appId: string;
+    tableName: string;
+    localChecksum: string | null;
+    localVersion: string | null;
+    localUpdatedAt: Date | null;
+    remoteChecksum: string | null;
+    remoteVersion: string | null;
+    remoteUpdatedAt: Date | null;
+    syncStatus: 'synced' | 'pending' | 'behind' | 'conflict' | 'unknown';
+    lastSyncAt: Date | null;
+    lastSyncDirection: 'push' | 'pull' | null;
+    lastSyncBy: string | null;
+    baseChecksum: string | null;
+    conflictDetails: Record<string, unknown> | null;
+}
+interface PullOptions {
+    environment?: string;
+    dryRun?: boolean;
+    force?: boolean;
+}
+interface PushOptions {
+    environment?: string;
+    dryRun?: boolean;
+    force?: boolean;
+}
+interface DiffOptions {
+    environment?: string;
+    outputFormat?: 'text' | 'json' | 'sql';
+}
+interface PullResult {
+    applied: boolean;
+    diff: SchemaSyncDiff;
+}
+interface PushResult {
+    applied: boolean;
+    diff: SchemaSyncDiff;
+    remoteResult?: RemotePushResult$1;
+}
+interface RemoteSchemaResponse$1 {
+    schema: SchemaDefinition;
+    version: string;
+    checksum: string;
+    updatedAt: string;
+    environment: string;
+}
+interface RemotePushResult$1 {
+    success: boolean;
+    applied: boolean;
+    migration?: MigrationScript;
+    errors?: string[];
+    warnings?: string[];
+}
+interface RemoteSyncStatus$1 {
+    version: string;
+    checksum: string;
+    updatedAt: string;
+    environment: string;
+}
+declare class SchemaRemoteError extends Error {
+    statusCode?: number | undefined;
+    constructor(message: string, statusCode?: number | undefined);
+}
+declare class BreakingChangeError extends Error {
+    changes: SchemaChange[];
+    constructor(message: string, changes?: SchemaChange[]);
+}
+declare class ConflictError extends Error {
+    conflicts: SchemaChange[];
+    constructor(message: string, conflicts?: SchemaChange[]);
+}
+declare class AuthenticationError extends Error {
+    constructor(message?: string);
+}
+declare class UserCancelledError extends Error {
+    constructor(message?: string);
+}
+
+declare class SchemaIntrospector {
+    private driver;
+    private dialect;
+    constructor(driver: Driver, dialect: Dialect);
+    introspect(options?: IntrospectOptions): Promise<SchemaIntrospectionResult>;
+    introspectTables(options?: IntrospectOptions): Promise<IntrospectedTable[]>;
+    listTables(options?: IntrospectOptions): Promise<string[]>;
+    introspectTable(tableName: string): Promise<IntrospectedTable>;
+    introspectColumns(tableName: string): Promise<IntrospectedColumn[]>;
+    private introspectPostgresColumns;
+    private introspectMysqlColumns;
+    private introspectSqliteColumns;
+    introspectIndexes(tableName: string): Promise<IntrospectedIndex[]>;
+    private introspectPostgresIndexes;
+    private introspectMysqlIndexes;
+    private introspectSqliteIndexes;
+    introspectForeignKeys(tableName: string): Promise<IntrospectedForeignKey[]>;
+    private introspectPostgresForeignKeys;
+    private introspectMysqlForeignKeys;
+    private introspectSqliteForeignKeys;
+    introspectConstraints(tableName: string): Promise<IntrospectedConstraint[]>;
+    introspectEnums(): Promise<IntrospectedEnum[]>;
+    introspectExtensions(): Promise<string[]>;
+    getDatabaseVersion(): Promise<string>;
+    private extractPrimaryKey;
+    toSchemaDefinition(result: SchemaIntrospectionResult): SchemaDefinition;
+    private tableToDefinition;
+    private columnToDefinition;
+    private mapDataTypeToColumnType;
+}
+declare function createSchemaIntrospector(driver: Driver, dialect: Dialect): SchemaIntrospector;
+
+interface SchemaDiffOptions {
+    generateMigration?: boolean;
+    treatColumnDropAsBreaking?: boolean;
+    treatTableDropAsBreaking?: boolean;
+    migrationName?: string;
+}
+declare class SchemaDiffEngine {
+    private dialect;
+    constructor(dialect: Dialect);
+    computeDiff(current: SchemaDefinition | null, target: SchemaDefinition, options?: SchemaDiffOptions): SchemaSyncDiff;
+    private generateTableAddChanges;
+    private generateTableDropChange;
+    private compareColumns;
+    private compareIndexes;
+    private generateColumnAlteration;
+    private isColumnChangeBreaking;
+    private columnsEqual;
+    private summarizeChanges;
+    private generateMigration;
+    formatDiff(diff: SchemaSyncDiff, format?: 'text' | 'json' | 'sql'): string;
+}
+declare function createSchemaDiffEngine(dialect: Dialect): SchemaDiffEngine;
+
+interface RemoteConfig {
+    apiUrl: string;
+    projectId: string;
+    authToken: string;
+}
+interface RemoteSchemaResponse {
+    schema: SchemaDefinition;
+    version: string;
+    checksum: string;
+    updatedAt: string;
+    environment: string;
+}
+interface RemotePushOptions {
+    environment?: string;
+    dryRun?: boolean;
+    force?: boolean;
+}
+interface RemotePushResult {
+    success: boolean;
+    applied: boolean;
+    migration?: MigrationScript;
+    errors?: string[];
+    warnings?: string[];
+}
+interface RemoteSyncStatus {
+    version: string;
+    checksum: string;
+    updatedAt: string;
+    environment: string;
+}
+interface RemoteHealthResponse {
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    version: string;
+}
+interface RemoteApiError {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+interface SchemaRemoteClientOptions {
+    timeout?: number;
+    retries?: number;
+}
+declare class SchemaRemoteClient {
+    private apiUrl;
+    private projectId;
+    private authToken;
+    private timeout;
+    private retries;
+    private schemaCache;
+    private readonly CACHE_TTL;
+    constructor(config: RemoteConfig, options?: SchemaRemoteClientOptions);
+    fetchSchema(environment?: string): Promise<RemoteSchemaResponse>;
+    pushMigration(migration: MigrationScript, options?: RemotePushOptions): Promise<RemotePushResult>;
+    getSyncStatus(environment?: string): Promise<RemoteSyncStatus>;
+    healthCheck(): Promise<RemoteHealthResponse>;
+    clearCache(): void;
+    private request;
+    private delay;
+}
+declare function createSchemaRemoteClient(config: RemoteConfig, options?: SchemaRemoteClientOptions): SchemaRemoteClient;
+
+interface SchemaSyncServiceOptions {
+    appId: string;
+    migrationsPath?: string;
+}
+interface Logger {
+    info(message: string): void;
+    warn(message: string): void;
+    error(message: string): void;
+}
+declare class SchemaSyncService {
+    private driver;
+    private dialect;
+    private remoteClient;
+    private options;
+    private logger;
+    private introspector;
+    private diffEngine;
+    private syncMetadata;
+    constructor(driver: Driver, dialect: Dialect, remoteClient: SchemaRemoteClient, options: SchemaSyncServiceOptions, logger?: Logger);
+    pull(options?: PullOptions): Promise<PullResult>;
+    push(options?: PushOptions): Promise<PushResult>;
+    diff(options?: DiffOptions): Promise<SchemaSyncDiff>;
+    getSyncStatus(): Promise<SyncStatus | null>;
+    introspectLocal(): Promise<SchemaDefinition>;
+    formatDiff(diff: SchemaSyncDiff, format?: 'text' | 'json' | 'sql'): string;
+    private applyMigration;
+    private computeSchemaChecksum;
+}
+declare function createSchemaSyncService(driver: Driver, dialect: Dialect, remoteClient: SchemaRemoteClient, options: SchemaSyncServiceOptions, logger?: Logger): SchemaSyncService;
+
+interface SyncMetadataOptions {
+    tableName?: string;
+}
+declare class SyncMetadataManager {
+    private driver;
+    private dialect;
+    private tableName;
+    constructor(driver: Driver, dialect: Dialect, options?: SyncMetadataOptions);
+    ensureSyncTable(): Promise<void>;
+    getSyncState(appId: string, tableName: string): Promise<SyncStatus | null>;
+    getAllSyncStates(appId: string): Promise<SyncStatus[]>;
+    updateSyncState(appId: string, direction: 'push' | 'pull', data: {
+        localChecksum?: string;
+        localVersion?: string;
+        remoteChecksum?: string;
+        remoteVersion?: string;
+        syncBy?: string;
+    }): Promise<void>;
+    markConflict(appId: string, tableName: string, conflictDetails: Record<string, unknown>): Promise<void>;
+    detectConflicts(appId: string): Promise<SyncStatus[]>;
+    private generateUUID;
+}
+declare function createSyncMetadataManager(driver: Driver, dialect: Dialect, options?: SyncMetadataOptions): SyncMetadataManager;
+
+interface Credentials {
+    token: string;
+    refreshToken?: string;
+    expiresAt?: string;
+    projectId?: string;
+}
+interface AuthConfig {
+    credentialsPath?: string;
+}
+declare class AuthHandler {
+    private credentialsPath;
+    private cachedCredentials;
+    constructor(config?: AuthConfig);
+    getToken(): Promise<string>;
+    getProjectId(): Promise<string | undefined>;
+    saveCredentials(credentials: Credentials): Promise<void>;
+    clearCredentials(): Promise<void>;
+    isAuthenticated(): Promise<boolean>;
+    private loadCredentials;
+    private refreshToken;
+}
+declare function createAuthHandler(config?: AuthConfig): AuthHandler;
+
 interface TypeGeneratorOptions {
     includeInsertTypes?: boolean;
     includeUpdateTypes?: boolean;
@@ -1436,4 +1805,4 @@ declare function createDb(options: {
     strictTenantMode?: boolean;
 }): Promise<DbClient>;
 
-export { type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type DrainOptions, type DrainPhase, type DrainProgress, type DrainResult, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, type HealthCheckConfig, type HealthCheckResult, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type JoinClause, type ListBranchesFilter, type LoadedSeeder, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, type MongoOperation, type MongoOperationOptions, type MongoOperationType, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, type PoolMonitor, type PoolMonitorConfig, type PoolStats, PrimaryKey, type QueryAST, type QueryInfo, type QueryResult, QueryTracker, type RegisterSchemaOptions, type RelationMetadata, Repository, type RetryConfig, SQLCompiler, type SchemaDefinition, type SchemaDiff, SchemaDiffer, SchemaRegistry, type SchemaRegistryOptions, SeedLoader, type SeedLoaderOptions, type SeedRecord, type SeedResult, type SeedRunOptions, type SeedRunResult, SeedRunner, type SeedRunnerOptions, SeedTracker, type SeedTrackerOptions, Seeder, type SeederConstructor, type SeederLogger, type SeederMetadata, type SeederResult, SelectBuilder, type SignalHandlerOptions, SqlSeederAdapter, type SwitchBranchResult, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createHealthCheckResult, createMigrationCollector, createMigrationRunner, createModuleRegistry, createPoolMonitor, createRepository, createSchemaRegistry, createSeedRunner, createTimeoutPromise, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDefaultHealthCheckConfig, getDialect, getEntityColumns, getEntityTableName, isRetryableError, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, registerSignalHandlers, sqliteDialect, validateTenantContext, validateTenantContextOrWarn, withRetry };
+export { type AuthConfig, AuthHandler, AuthenticationError, type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, BreakingChangeError, type ChangeType, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, ConflictError, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, type Credentials, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type DiffOptions, type DiffSummary, type DrainOptions, type DrainPhase, type DrainProgress, type DrainResult, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, type HealthCheckConfig, type HealthCheckResult, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type IntrospectOptions, type IntrospectedColumn, type IntrospectedConstraint, type IntrospectedEnum, type IntrospectedForeignKey, type IntrospectedIndex, type IntrospectedTable, type JoinClause, type ListBranchesFilter, type LoadedSeeder, type Logger, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationScript, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, type MongoOperation, type MongoOperationOptions, type MongoOperationType, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, type PoolMonitor, type PoolMonitorConfig, type PoolStats, PrimaryKey, type PullOptions, type PullResult, type PushOptions, type PushResult, type QueryAST, type QueryInfo, type QueryResult, QueryTracker, type RegisterSchemaOptions, type RelationMetadata, type RemoteApiError, type RemoteConfig, type RemoteHealthResponse, type RemotePushOptions, type RemotePushResult$1 as RemotePushResult, type RemoteSchemaResponse$1 as RemoteSchemaResponse, type RemoteSyncStatus$1 as RemoteSyncStatus, Repository, type RetryConfig, SQLCompiler, type SchemaChange, type SchemaDefinition, type SchemaDiff, SchemaDiffEngine, type SchemaDiffOptions, SchemaDiffer, type SchemaIntrospectionResult, SchemaIntrospector, SchemaRegistry, type SchemaRegistryOptions, SchemaRemoteClient, type SchemaRemoteClientOptions, SchemaRemoteError, type SchemaSyncDiff, SchemaSyncService, type SchemaSyncServiceOptions, SeedLoader, type SeedLoaderOptions, type SeedRecord, type SeedResult, type SeedRunOptions, type SeedRunResult, SeedRunner, type SeedRunnerOptions, SeedTracker, type SeedTrackerOptions, Seeder, type SeederConstructor, type SeederLogger, type SeederMetadata, type SeederResult, SelectBuilder, type SignalHandlerOptions, SqlSeederAdapter, type SwitchBranchResult, SyncMetadataManager, type SyncMetadataOptions, type SyncStatus, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, UserCancelledError, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createAuthHandler, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createHealthCheckResult, createMigrationCollector, createMigrationRunner, createModuleRegistry, createPoolMonitor, createRepository, createSchemaDiffEngine, createSchemaIntrospector, createSchemaRegistry, createSchemaRemoteClient, createSchemaSyncService, createSeedRunner, createSyncMetadataManager, createTimeoutPromise, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDefaultHealthCheckConfig, getDialect, getEntityColumns, getEntityTableName, isRetryableError, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, registerSignalHandlers, sqliteDialect, validateTenantContext, validateTenantContextOrWarn, withRetry };
