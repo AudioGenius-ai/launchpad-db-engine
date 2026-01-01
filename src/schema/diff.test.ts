@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchemaDiffEngine } from './diff.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Dialect } from '../migrations/dialects/types.js';
 import type { SchemaDefinition } from '../types/index.js';
+import { SchemaDiffEngine } from './diff.js';
 
 const createMockDialect = (): Dialect => ({
   name: 'postgresql',
@@ -66,7 +66,9 @@ describe('SchemaDiffEngine', () => {
 
       expect(diff.hasDifferences).toBe(true);
       expect(diff.summary.tablesAdded).toBe(1);
-      expect(diff.changes.some((c) => c.type === 'table_add' && c.tableName === 'users')).toBe(true);
+      expect(diff.changes.some((c) => c.type === 'table_add' && c.tableName === 'users')).toBe(
+        true
+      );
     });
 
     it('should detect table drop as breaking change', () => {
@@ -114,7 +116,9 @@ describe('SchemaDiffEngine', () => {
 
       expect(diff.hasDifferences).toBe(true);
       expect(diff.summary.columnsAdded).toBe(1);
-      expect(diff.changes.some((c) => c.type === 'column_add' && c.objectName === 'email')).toBe(true);
+      expect(diff.changes.some((c) => c.type === 'column_add' && c.objectName === 'email')).toBe(
+        true
+      );
     });
 
     it('should detect column drop as breaking change', () => {

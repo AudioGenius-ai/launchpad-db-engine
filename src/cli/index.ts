@@ -6,10 +6,14 @@ import { MigrationRunner } from '../migrations/runner.js';
 import { MigrationCollector } from '../modules/collector.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import type { ModuleDefinition } from '../modules/types.js';
-import { createSchemaRemoteClient } from '../remote/client.js';
 import { createAuthHandler } from '../remote/auth.js';
+import { createSchemaRemoteClient } from '../remote/client.js';
+import {
+  BreakingChangeError,
+  UserCancelledError,
+  createSchemaSyncService,
+} from '../schema/index.js';
 import { SchemaRegistry } from '../schema/registry.js';
-import { createSchemaSyncService, BreakingChangeError, UserCancelledError } from '../schema/index.js';
 import { generateTypes } from '../types/generator.js';
 import type { SchemaDefinition } from '../types/index.js';
 

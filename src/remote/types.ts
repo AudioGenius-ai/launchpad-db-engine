@@ -1,5 +1,5 @@
-import type { SchemaDefinition } from '../types/index.js';
 import type { MigrationScript } from '../schema/types.js';
+import type { SchemaDefinition } from '../types/index.js';
 
 export interface RemoteConfig {
   apiUrl: string;

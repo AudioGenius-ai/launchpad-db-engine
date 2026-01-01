@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchemaIntrospector } from './introspect.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Driver } from '../driver/types.js';
 import type { Dialect } from '../migrations/dialects/types.js';
+import { SchemaIntrospector } from './introspect.js';
 
 const createMockDriver = (): Driver => ({
   dialect: 'postgresql',
@@ -62,10 +62,7 @@ describe('SchemaIntrospector', () => {
 
     it('should include launchpad tables when option is set', async () => {
       vi.mocked(driver.query).mockResolvedValueOnce({
-        rows: [
-          { table_name: 'users' },
-          { table_name: 'lp_migrations' },
-        ],
+        rows: [{ table_name: 'users' }, { table_name: 'lp_migrations' }],
         rowCount: 2,
       });
 
@@ -77,11 +74,7 @@ describe('SchemaIntrospector', () => {
 
     it('should exclude specified tables', async () => {
       vi.mocked(driver.query).mockResolvedValueOnce({
-        rows: [
-          { table_name: 'users' },
-          { table_name: 'temp_data' },
-          { table_name: 'orders' },
-        ],
+        rows: [{ table_name: 'users' }, { table_name: 'temp_data' }, { table_name: 'orders' }],
         rowCount: 3,
       });
 

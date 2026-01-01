@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Driver } from '../driver/types.js';
 import type { Dialect } from '../migrations/dialects/types.js';
-import type { SchemaDefinition } from '../types/index.js';
 import type { SchemaRemoteClient } from '../remote/client.js';
+import type { SchemaDefinition } from '../types/index.js';
 import { SchemaDiffEngine } from './diff.js';
 import { SchemaIntrospector } from './introspect.js';
 import { SyncMetadataManager } from './sync-metadata.js';
 import {
   BreakingChangeError,
-  UserCancelledError,
   type DiffOptions,
   type PullOptions,
   type PullResult,
@@ -16,6 +15,7 @@ import {
   type PushResult,
   type SchemaDiff,
   type SyncStatus,
+  UserCancelledError,
 } from './types.js';
 
 export interface SchemaSyncServiceOptions {

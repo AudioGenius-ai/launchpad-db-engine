@@ -1,12 +1,12 @@
 import type { MigrationScript } from '../schema/types.js';
-import { SchemaRemoteError, AuthenticationError } from '../schema/types.js';
+import { AuthenticationError, SchemaRemoteError } from '../schema/types.js';
 import type {
   RemoteConfig,
-  RemoteSchemaResponse,
+  RemoteHealthResponse,
   RemotePushOptions,
   RemotePushResult,
+  RemoteSchemaResponse,
   RemoteSyncStatus,
-  RemoteHealthResponse,
 } from './types.js';
 
 export interface SchemaRemoteClientOptions {
@@ -136,7 +136,7 @@ export class SchemaRemoteClient {
           }
 
           if (response.status >= 500 && attempt < this.retries - 1) {
-            await this.delay(Math.pow(2, attempt) * 1000);
+            await this.delay(2 ** attempt * 1000);
             continue;
           }
 
@@ -166,7 +166,7 @@ export class SchemaRemoteClient {
         }
 
         if (attempt < this.retries - 1) {
-          await this.delay(Math.pow(2, attempt) * 1000);
+          await this.delay(2 ** attempt * 1000);
         }
       }
     }

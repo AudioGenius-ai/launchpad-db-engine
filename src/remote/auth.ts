@@ -1,6 +1,6 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { AuthenticationError } from '../schema/types.js';
 
 export interface Credentials {
@@ -28,7 +28,9 @@ export class AuthHandler {
     const credentials = await this.loadCredentials();
 
     if (!credentials?.token) {
-      throw new AuthenticationError('No authentication token found. Run `launchpad login` to authenticate.');
+      throw new AuthenticationError(
+        'No authentication token found. Run `launchpad login` to authenticate.'
+      );
     }
 
     if (credentials.expiresAt) {
@@ -37,7 +39,9 @@ export class AuthHandler {
         if (credentials.refreshToken) {
           return this.refreshToken(credentials.refreshToken);
         }
-        throw new AuthenticationError('Authentication token has expired. Run `launchpad login` to re-authenticate.');
+        throw new AuthenticationError(
+          'Authentication token has expired. Run `launchpad login` to re-authenticate.'
+        );
       }
     }
 
@@ -59,8 +63,7 @@ export class AuthHandler {
     try {
       await writeFile(this.credentialsPath, '{}', 'utf-8');
       this.cachedCredentials = null;
-    } catch {
-    }
+    } catch {}
   }
 
   async isAuthenticated(): Promise<boolean> {
@@ -87,7 +90,9 @@ export class AuthHandler {
   }
 
   private async refreshToken(_refreshToken: string): Promise<string> {
-    throw new AuthenticationError('Token refresh not implemented. Run `launchpad login` to re-authenticate.');
+    throw new AuthenticationError(
+      'Token refresh not implemented. Run `launchpad login` to re-authenticate.'
+    );
   }
 }
 

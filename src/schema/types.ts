@@ -219,14 +219,14 @@ export class ConflictError extends Error {
 }
 
 export class AuthenticationError extends Error {
-  constructor(message: string = 'Authentication failed. Run `launchpad login` to authenticate.') {
+  constructor(message = 'Authentication failed. Run `launchpad login` to authenticate.') {
     super(message);
     this.name = 'AuthenticationError';
   }
 }
 
 export class UserCancelledError extends Error {
-  constructor(message: string = 'Operation cancelled by user.') {
+  constructor(message = 'Operation cancelled by user.') {
     super(message);
     this.name = 'UserCancelledError';
   }

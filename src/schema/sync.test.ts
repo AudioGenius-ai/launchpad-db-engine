@@ -1,19 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchemaSyncService } from './sync.js';
-import { BreakingChangeError, UserCancelledError } from './types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Driver } from '../driver/types.js';
 import type { Dialect } from '../migrations/dialects/types.js';
 import type { SchemaRemoteClient } from '../remote/client.js';
+import { SchemaSyncService } from './sync.js';
+import { BreakingChangeError, UserCancelledError } from './types.js';
 
 const createMockDriver = (): Driver => ({
   dialect: 'postgresql',
   connectionString: 'postgresql://test',
   query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
   execute: vi.fn().mockResolvedValue({ rowCount: 0 }),
-  transaction: vi.fn().mockImplementation(async (fn) => fn({
-    query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    execute: vi.fn().mockResolvedValue({ rowCount: 0 }),
-  })),
+  transaction: vi.fn().mockImplementation(async (fn) =>
+    fn({
+      query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+      execute: vi.fn().mockResolvedValue({ rowCount: 0 }),
+    })
+  ),
   close: vi.fn(),
 });
 
@@ -35,13 +37,14 @@ const createMockDialect = (): Dialect => ({
   introspectIndexesQuery: vi.fn(),
 });
 
-const createMockRemoteClient = (): SchemaRemoteClient => ({
-  fetchSchema: vi.fn(),
-  pushMigration: vi.fn(),
-  getSyncStatus: vi.fn(),
-  healthCheck: vi.fn(),
-  clearCache: vi.fn(),
-}) as unknown as SchemaRemoteClient;
+const createMockRemoteClient = (): SchemaRemoteClient =>
+  ({
+    fetchSchema: vi.fn(),
+    pushMigration: vi.fn(),
+    getSyncStatus: vi.fn(),
+    healthCheck: vi.fn(),
+    clearCache: vi.fn(),
+  }) as unknown as SchemaRemoteClient;
 
 const createMockLogger = () => ({
   info: vi.fn(),
@@ -61,9 +64,15 @@ describe('SchemaSyncService', () => {
     dialect = createMockDialect();
     remoteClient = createMockRemoteClient();
     logger = createMockLogger();
-    syncService = new SchemaSyncService(driver, dialect, remoteClient, {
-      appId: 'test-app',
-    }, logger);
+    syncService = new SchemaSyncService(
+      driver,
+      dialect,
+      remoteClient,
+      {
+        appId: 'test-app',
+      },
+      logger
+    );
   });
 
   describe('pull', () => {
@@ -210,7 +219,9 @@ describe('SchemaSyncService', () => {
         environment: 'production',
       });
 
-      await expect(syncService.push({ environment: 'production' })).rejects.toThrow(UserCancelledError);
+      await expect(syncService.push({ environment: 'production' })).rejects.toThrow(
+        UserCancelledError
+      );
     });
   });
 

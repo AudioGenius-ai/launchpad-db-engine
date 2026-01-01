@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthenticationError, SchemaRemoteError } from '../schema/types.js';
 import { SchemaRemoteClient } from './client.js';
-import { SchemaRemoteError, AuthenticationError } from '../schema/types.js';
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;

@@ -94,10 +94,12 @@ export class SyncMetadataManager {
     await this.driver.execute(sql);
 
     if (this.dialect.name === 'postgresql') {
-      await this.driver.execute(`
+      await this.driver
+        .execute(`
         CREATE INDEX IF NOT EXISTS idx_${this.tableName}_status
         ON "${this.tableName}"(app_id, sync_status)
-      `).catch(() => {});
+      `)
+        .catch(() => {});
     }
   }
 

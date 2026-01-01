@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { Dialect } from '../migrations/dialects/types.js';
-import type { ColumnDefinition, IndexDefinition, SchemaDefinition, TableDefinition } from '../types/index.js';
 import type {
-  DiffSummary,
-  MigrationScript,
-  SchemaChange,
-  SchemaDiff,
-} from './types.js';
+  ColumnDefinition,
+  IndexDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from '../types/index.js';
+import type { DiffSummary, MigrationScript, SchemaChange, SchemaDiff } from './types.js';
 
 export interface SchemaDiffOptions {
   generateMigration?: boolean;
@@ -94,7 +94,9 @@ export class SchemaDiffEngine {
     if (table.indexes) {
       for (const index of table.indexes) {
         const indexSql = this.dialect.createIndex(tableName, index);
-        const dropIndexSql = this.dialect.dropIndex(index.name ?? `idx_${tableName}_${index.columns.join('_')}`);
+        const dropIndexSql = this.dialect.dropIndex(
+          index.name ?? `idx_${tableName}_${index.columns.join('_')}`
+        );
 
         changes.push({
           type: 'index_add',
@@ -207,7 +209,12 @@ export class SchemaDiffEngine {
         const targetCol = target.columns[colName];
 
         if (!this.columnsEqual(currentCol, targetCol)) {
-          const alteration = this.generateColumnAlteration(tableName, colName, currentCol, targetCol);
+          const alteration = this.generateColumnAlteration(
+            tableName,
+            colName,
+            currentCol,
+            targetCol
+          );
           if (alteration) {
             changes.push(alteration);
           }
@@ -453,25 +460,39 @@ export class SchemaDiffEngine {
 
     lines.push('│ Summary:                                                          │');
     if (diff.summary.tablesAdded > 0) {
-      lines.push(`│   + ${diff.summary.tablesAdded} table(s) added                                             │`);
+      lines.push(
+        `│   + ${diff.summary.tablesAdded} table(s) added                                             │`
+      );
     }
     if (diff.summary.tablesDropped > 0) {
-      lines.push(`│   - ${diff.summary.tablesDropped} table(s) dropped (BREAKING)                               │`);
+      lines.push(
+        `│   - ${diff.summary.tablesDropped} table(s) dropped (BREAKING)                               │`
+      );
     }
     if (diff.summary.columnsAdded > 0) {
-      lines.push(`│   + ${diff.summary.columnsAdded} column(s) added                                            │`);
+      lines.push(
+        `│   + ${diff.summary.columnsAdded} column(s) added                                            │`
+      );
     }
     if (diff.summary.columnsDropped > 0) {
-      lines.push(`│   - ${diff.summary.columnsDropped} column(s) dropped (BREAKING)                              │`);
+      lines.push(
+        `│   - ${diff.summary.columnsDropped} column(s) dropped (BREAKING)                              │`
+      );
     }
     if (diff.summary.columnsModified > 0) {
-      lines.push(`│   ~ ${diff.summary.columnsModified} column(s) modified                                        │`);
+      lines.push(
+        `│   ~ ${diff.summary.columnsModified} column(s) modified                                        │`
+      );
     }
     if (diff.summary.indexesAdded > 0) {
-      lines.push(`│   + ${diff.summary.indexesAdded} index(es) added                                             │`);
+      lines.push(
+        `│   + ${diff.summary.indexesAdded} index(es) added                                             │`
+      );
     }
     if (diff.summary.indexesDropped > 0) {
-      lines.push(`│   - ${diff.summary.indexesDropped} index(es) dropped                                          │`);
+      lines.push(
+        `│   - ${diff.summary.indexesDropped} index(es) dropped                                          │`
+      );
     }
 
     lines.push('├──────────────────────────────────────────────────────────────────┤');
@@ -486,7 +507,9 @@ export class SchemaDiffEngine {
 
     if (diff.breakingChanges.length > 0) {
       lines.push('');
-      lines.push(`⚠️  ${diff.breakingChanges.length} breaking change(s) detected. Use --force to apply.`);
+      lines.push(
+        `⚠️  ${diff.breakingChanges.length} breaking change(s) detected. Use --force to apply.`
+      );
     }
 
     return lines.join('\n');

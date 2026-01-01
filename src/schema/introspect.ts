@@ -1,14 +1,19 @@
 import type { Driver } from '../driver/types.js';
 import type { Dialect } from '../migrations/dialects/types.js';
-import type { ColumnDefinition, ColumnType, SchemaDefinition, TableDefinition } from '../types/index.js';
 import type {
+  ColumnDefinition,
+  ColumnType,
+  SchemaDefinition,
+  TableDefinition,
+} from '../types/index.js';
+import type {
+  IntrospectOptions,
   IntrospectedColumn,
   IntrospectedConstraint,
   IntrospectedEnum,
   IntrospectedForeignKey,
   IntrospectedIndex,
   IntrospectedTable,
-  IntrospectOptions,
   SchemaIntrospectionResult,
 } from './types.js';
 
@@ -46,9 +51,7 @@ export class SchemaIntrospector {
   }
 
   async listTables(options: IntrospectOptions = {}): Promise<string[]> {
-    const excludePatterns = options.includeLaunchpadTables
-      ? []
-      : ['lp_%', 'pg_%', 'sql_%'];
+    const excludePatterns = options.includeLaunchpadTables ? [] : ['lp_%', 'pg_%', 'sql_%'];
     const additionalExcludes = options.excludeTables ?? [];
 
     let sql: string;
@@ -369,7 +372,9 @@ export class SchemaIntrospector {
     return this.introspectSqliteForeignKeys(tableName);
   }
 
-  private async introspectPostgresForeignKeys(tableName: string): Promise<IntrospectedForeignKey[]> {
+  private async introspectPostgresForeignKeys(
+    tableName: string
+  ): Promise<IntrospectedForeignKey[]> {
     const sql = `
       SELECT
         tc.constraint_name,
@@ -559,7 +564,9 @@ export class SchemaIntrospector {
       const result = await this.driver.query<{ version: string }>('SELECT VERSION() as version');
       return result.rows[0]?.version ?? 'unknown';
     }
-    const result = await this.driver.query<{ 'sqlite_version()': string }>('SELECT sqlite_version()');
+    const result = await this.driver.query<{ 'sqlite_version()': string }>(
+      'SELECT sqlite_version()'
+    );
     return result.rows[0]?.['sqlite_version()'] ?? 'unknown';
   }
 
@@ -615,7 +622,9 @@ export class SchemaIntrospector {
       def.default = col.defaultValue;
     }
 
-    const fk = table.foreignKeys.find((fk) => fk.columns.length === 1 && fk.columns[0] === col.name);
+    const fk = table.foreignKeys.find(
+      (fk) => fk.columns.length === 1 && fk.columns[0] === col.name
+    );
     if (fk) {
       def.references = {
         table: fk.referencedTable,
@@ -639,14 +648,16 @@ export class SchemaIntrospector {
     if (udt === 'uuid' || normalized === 'uuid') return 'uuid';
     if (normalized.includes('int') && normalized !== 'interval') return 'integer';
     if (normalized === 'bigint' || udt === 'int8') return 'bigint';
-    if (normalized.includes('float') || normalized.includes('double') || normalized === 'real') return 'float';
+    if (normalized.includes('float') || normalized.includes('double') || normalized === 'real')
+      return 'float';
     if (normalized.includes('numeric') || normalized.includes('decimal')) return 'decimal';
     if (normalized === 'boolean' || normalized === 'bool') return 'boolean';
     if (normalized.includes('timestamp') || normalized === 'datetime') return 'datetime';
     if (normalized === 'date') return 'date';
     if (normalized === 'time') return 'time';
     if (normalized === 'json' || normalized === 'jsonb') return 'json';
-    if (normalized === 'bytea' || normalized.includes('blob') || normalized === 'binary') return 'binary';
+    if (normalized === 'bytea' || normalized.includes('blob') || normalized === 'binary')
+      return 'binary';
     if (normalized === 'text' || udt === 'text') return 'text';
     return 'string';
   }
