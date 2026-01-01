@@ -605,7 +605,9 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .execute();
 
       expect(result).toHaveLength(2);
-      expect(result.map((r: any) => r.name)).toEqual(expect.arrayContaining(['John', 'Jane']));
+      expect(result.map((r: { name: string }) => r.name)).toEqual(
+        expect.arrayContaining(['John', 'Jane'])
+      );
     });
 
     it('should perform LEFT JOIN', async () => {
@@ -623,7 +625,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Query Builder E2E Tests', () => {
         .execute();
 
       expect(result).toHaveLength(3);
-      expect(result.map((r: any) => r.name)).toEqual(
+      expect(result.map((r: { name: string }) => r.name)).toEqual(
         expect.arrayContaining(['John', 'Jane', 'Bob'])
       );
     });

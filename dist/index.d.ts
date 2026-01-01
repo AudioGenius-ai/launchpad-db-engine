@@ -94,7 +94,7 @@ interface MigrationFile {
     templateKey?: string;
     moduleName?: string;
 }
-interface MigrationRecord {
+interface MigrationRecord$1 {
     version: number;
     name: string;
     scope: 'core' | 'template';
@@ -114,21 +114,83 @@ interface MigrationResult {
     duration: number;
 }
 interface MigrationStatus {
-    applied: MigrationRecord[];
+    applied: MigrationRecord$1[];
     pending: MigrationFile[];
     current: number | null;
 }
-type DialectName = 'postgresql' | 'mysql' | 'sqlite';
+type DialectName = 'postgresql' | 'mysql' | 'sqlite' | 'mongodb';
 interface QueryResult<T = Record<string, unknown>> {
     rows: T[];
     rowCount: number;
 }
+type MongoOperationType = 'find' | 'aggregate' | 'insertOne' | 'insertMany' | 'updateOne' | 'updateMany' | 'deleteOne' | 'deleteMany' | 'findOneAndUpdate' | 'findOneAndDelete' | 'countDocuments';
+interface MongoOperationOptions {
+    sort?: Record<string, 1 | -1>;
+    limit?: number;
+    skip?: number;
+    projection?: Record<string, 0 | 1>;
+    upsert?: boolean;
+    returnDocument?: 'before' | 'after';
+}
+interface MongoOperation {
+    type: MongoOperationType;
+    collection: string;
+    filter?: Record<string, unknown>;
+    pipeline?: Record<string, unknown>[];
+    document?: Record<string, unknown>;
+    documents?: Record<string, unknown>[];
+    update?: Record<string, unknown>;
+    options?: MongoOperationOptions;
+}
+
+interface PoolStats {
+    totalConnections: number;
+    activeConnections: number;
+    idleConnections: number;
+    waitingRequests: number;
+    maxConnections: number;
+}
+interface HealthCheckResult {
+    healthy: boolean;
+    latencyMs: number;
+    lastCheckedAt: Date;
+    error?: string;
+}
+interface HealthCheckConfig {
+    enabled?: boolean;
+    intervalMs?: number;
+    timeoutMs?: number;
+    onHealthChange?: (healthy: boolean, result: HealthCheckResult) => void;
+}
+declare function createHealthCheckResult(healthy: boolean, latencyMs: number, error?: string): HealthCheckResult;
+declare function getDefaultHealthCheckConfig(overrides?: Partial<HealthCheckConfig>): HealthCheckConfig;
 
 interface DriverConfig {
     connectionString: string;
     max?: number;
     idleTimeout?: number;
     connectTimeout?: number;
+    healthCheck?: HealthCheckConfig;
+}
+type DrainPhase = 'draining' | 'cancelling' | 'closing' | 'complete';
+interface DrainOptions {
+    timeout?: number;
+    onProgress?: (progress: DrainProgress) => void;
+    forceCancelOnTimeout?: boolean;
+}
+interface DrainProgress {
+    phase: DrainPhase;
+    activeQueries: number;
+    completedQueries: number;
+    cancelledQueries: number;
+    elapsedMs: number;
+}
+interface DrainResult {
+    success: boolean;
+    completedQueries: number;
+    cancelledQueries: number;
+    elapsedMs: number;
+    error?: Error;
 }
 interface Driver {
     readonly dialect: DialectName;
@@ -139,6 +201,14 @@ interface Driver {
     }>;
     transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T>;
     close(): Promise<void>;
+    healthCheck(): Promise<HealthCheckResult>;
+    getPoolStats(): PoolStats;
+    isHealthy(): boolean;
+    startHealthChecks(): void;
+    stopHealthChecks(): void;
+    drainAndClose(options?: DrainOptions): Promise<DrainResult>;
+    getActiveQueryCount(): number;
+    readonly isDraining: boolean;
 }
 interface TransactionClient {
     query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
@@ -181,6 +251,30 @@ declare class SchemaRegistry {
     private computeChecksum;
 }
 declare function createSchemaRegistry(driver: Driver, options?: SchemaRegistryOptions): SchemaRegistry;
+
+interface MongoCompilerOptions {
+    injectTenant?: boolean;
+    tenantColumns?: {
+        appId: string;
+        organizationId: string;
+    };
+}
+declare class MongoCompiler {
+    private injectTenant;
+    private tenantColumns;
+    constructor(options?: MongoCompilerOptions);
+    compile(ast: QueryAST, ctx?: TenantContext): MongoOperation;
+    private compileSelect;
+    private compileSelectFind;
+    private compileSelectAggregate;
+    private compileInsert;
+    private compileUpdate;
+    private compileDelete;
+    private buildFilter;
+    private mapOperatorValue;
+    private likeToRegex;
+    private injectTenantData;
+}
 
 interface CompilerOptions {
     dialect: DialectName;
@@ -256,6 +350,15 @@ declare class MigrationRunner {
     private splitSqlStatements;
 }
 declare function createMigrationRunner(driver: Driver, options: MigrationRunnerOptions): MigrationRunner;
+
+interface MongoDriver extends Driver {
+    executeOperation<T = Record<string, unknown>>(op: MongoOperation): Promise<QueryResult<T>>;
+    getDb(): unknown;
+    collection(name: string): unknown;
+}
+interface MongoTransactionClient extends TransactionClient {
+    executeOperation<T = Record<string, unknown>>(op: MongoOperation): Promise<QueryResult<T>>;
+}
 
 declare class SelectBuilder<T = Record<string, unknown>> {
     private ast;
@@ -385,6 +488,121 @@ declare class TableBuilder<T = Record<string, unknown>> {
         offset?: number;
     }): Promise<T[]>;
 }
+declare class MongoSelectBuilder<T = Record<string, unknown>> {
+    private ast;
+    private driver;
+    private compiler;
+    private ctx?;
+    private tenantValidated;
+    private shouldValidateTenant;
+    constructor(driver: MongoDriver | MongoTransactionClient, compiler: MongoCompiler, table: string, ctx?: TenantContext, shouldValidateTenant?: boolean);
+    private validateTenantOnce;
+    select<K extends keyof T>(...columns: K[]): this;
+    where(column: keyof T, op: Operator, value: unknown): this;
+    whereNull(column: keyof T): this;
+    whereNotNull(column: keyof T): this;
+    whereIn(column: keyof T, values: unknown[]): this;
+    whereNotIn(column: keyof T, values: unknown[]): this;
+    whereLike(column: keyof T, pattern: string): this;
+    whereILike(column: keyof T, pattern: string): this;
+    orWhere(column: keyof T, op: Operator, value: unknown): this;
+    groupBy(...columns: (keyof T)[]): this;
+    having(column: keyof T, op: Operator, value: unknown): this;
+    orderBy(column: keyof T, direction?: 'asc' | 'desc'): this;
+    limit(n: number): this;
+    offset(n: number): this;
+    join(type: 'INNER' | 'LEFT' | 'RIGHT' | 'FULL', table: string, leftColumn: string, rightColumn: string, alias?: string): this;
+    innerJoin(table: string, leftColumn: string, rightColumn: string, alias?: string): this;
+    leftJoin(table: string, leftColumn: string, rightColumn: string, alias?: string): this;
+    execute(): Promise<T[]>;
+    first(): Promise<T | null>;
+    count(): Promise<number>;
+    toOperation(): MongoOperation;
+}
+declare class MongoInsertBuilder<T = Record<string, unknown>> {
+    private ast;
+    private driver;
+    private compiler;
+    private ctx?;
+    private tenantValidated;
+    private shouldValidateTenant;
+    constructor(driver: MongoDriver | MongoTransactionClient, compiler: MongoCompiler, table: string, ctx?: TenantContext, shouldValidateTenant?: boolean);
+    private validateTenantOnce;
+    values(data: Partial<Omit<T, 'app_id' | 'organization_id'>>): this;
+    valuesMany(rows: Partial<Omit<T, 'app_id' | 'organization_id'>>[]): this;
+    returning<K extends keyof T>(...columns: K[]): this;
+    execute(): Promise<T[]>;
+    toOperation(): MongoOperation;
+}
+declare class MongoUpdateBuilder<T = Record<string, unknown>> {
+    private ast;
+    private driver;
+    private compiler;
+    private ctx?;
+    private tenantValidated;
+    private shouldValidateTenant;
+    constructor(driver: MongoDriver | MongoTransactionClient, compiler: MongoCompiler, table: string, ctx?: TenantContext, shouldValidateTenant?: boolean);
+    private validateTenantOnce;
+    set(data: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>): this;
+    where(column: keyof T, op: Operator, value: unknown): this;
+    returning<K extends keyof T>(...columns: K[]): this;
+    execute(): Promise<T[]>;
+    toOperation(): MongoOperation;
+}
+declare class MongoDeleteBuilder<T = Record<string, unknown>> {
+    private ast;
+    private driver;
+    private compiler;
+    private ctx?;
+    private tenantValidated;
+    private shouldValidateTenant;
+    constructor(driver: MongoDriver | MongoTransactionClient, compiler: MongoCompiler, table: string, ctx?: TenantContext, shouldValidateTenant?: boolean);
+    private validateTenantOnce;
+    where(column: keyof T, op: Operator, value: unknown): this;
+    returning<K extends keyof T>(...columns: K[]): this;
+    execute(): Promise<T[]>;
+    toOperation(): MongoOperation;
+}
+declare class MongoTableBuilder<T = Record<string, unknown>> {
+    private driver;
+    private compiler;
+    private tableName;
+    private ctx?;
+    private shouldValidateTenant;
+    private whereConditions;
+    private orderByClause?;
+    private limitValue?;
+    private offsetValue?;
+    constructor(driver: MongoDriver | MongoTransactionClient, compiler: MongoCompiler, table: string, ctx?: TenantContext, shouldValidateTenant?: boolean);
+    where(column: keyof T, op: Operator, value: unknown): this;
+    whereNull(column: keyof T): this;
+    whereNotNull(column: keyof T): this;
+    whereIn(column: keyof T, values: unknown[]): this;
+    whereNotIn(column: keyof T, values: unknown[]): this;
+    whereLike(column: keyof T, pattern: string): this;
+    whereILike(column: keyof T, pattern: string): this;
+    orderBy(column: keyof T, direction?: 'asc' | 'desc'): this;
+    limit(n: number): this;
+    offset(n: number): this;
+    select<K extends keyof T>(...columns: K[]): MongoSelectBuilder<T>;
+    insert(): MongoInsertBuilder<T>;
+    update(data?: Partial<Omit<T, 'app_id' | 'organization_id' | 'id' | 'created_at'>>): MongoUpdateBuilder<T>;
+    delete(): MongoDeleteBuilder<T>;
+    findById(id: string | number): Promise<T | null>;
+    findMany(options?: {
+        where?: Array<{
+            column: keyof T;
+            op: Operator;
+            value: unknown;
+        }>;
+        orderBy?: {
+            column: keyof T;
+            direction: 'asc' | 'desc';
+        };
+        limit?: number;
+        offset?: number;
+    }): Promise<T[]>;
+}
 
 interface DbClientOptions {
     migrationsPath?: string;
@@ -401,8 +619,8 @@ declare class DbClient {
     private schemaRegistry;
     private strictTenantMode;
     constructor(driver: Driver, options?: DbClientOptions);
-    table<T = Record<string, unknown>>(name: string, ctx: TenantContext): TableBuilder<T>;
-    tableWithoutTenant<T = Record<string, unknown>>(name: string): TableBuilder<T>;
+    table<T = Record<string, unknown>>(name: string, ctx: TenantContext): TableBuilder<T> | MongoTableBuilder<T>;
+    tableWithoutTenant<T = Record<string, unknown>>(name: string): TableBuilder<T> | MongoTableBuilder<T>;
     transaction<T>(ctx: TenantContext, fn: (trx: TransactionContext) => Promise<T>): Promise<T>;
     raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
     rawWithTenant<T = Record<string, unknown>>(ctx: TenantContext, sql: string, params?: unknown[]): Promise<QueryResult<T>>;
@@ -430,7 +648,7 @@ declare class TransactionContext {
     private client;
     private compiler;
     private ctx;
-    constructor(client: TransactionClient, compiler: SQLCompiler, ctx: TenantContext);
+    constructor(client: TransactionClient, compiler: SQLCompiler | MongoCompiler, ctx: TenantContext);
     table<T = Record<string, unknown>>(name: string): TableBuilder<T>;
     raw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
     execute(sql: string, params?: unknown[]): Promise<{
@@ -599,8 +817,73 @@ declare class Repository<T> {
 }
 declare function createRepository<T>(entity: EntityConstructor<T>, db: DbClient | TransactionContext, tenantContext?: TenantContext): Repository<T>;
 
+interface QueryInfo {
+    id: string;
+    query: string;
+    startedAt: Date;
+    backendPid?: number;
+}
+declare class QueryTracker {
+    private activeQueries;
+    private completedCount;
+    private cancelledCount;
+    private draining;
+    private drainResolve;
+    trackQuery(id: string, query: string, backendPid?: number): void;
+    untrackQuery(id: string): void;
+    getActiveCount(): number;
+    getActiveQueries(): QueryInfo[];
+    startDrain(timeoutMs: number): Promise<{
+        timedOut: boolean;
+    }>;
+    markCancelled(id: string): void;
+    getStats(): {
+        completed: number;
+        cancelled: number;
+        active: number;
+    };
+    isDraining(): boolean;
+    reset(): void;
+}
+
+interface SignalHandlerOptions {
+    timeout?: number;
+    exitCodeSuccess?: number;
+    exitCodeForced?: number;
+    autoExit?: boolean;
+    onShutdownStart?: () => void;
+    onShutdownComplete?: (result: DrainResult) => void;
+}
+declare function registerSignalHandlers(driver: Driver, options?: SignalHandlerOptions): () => void;
+
+interface PoolMonitorConfig {
+    warningThreshold?: number;
+    criticalThreshold?: number;
+    checkIntervalMs?: number;
+    onWarning?: (stats: PoolStats) => void;
+    onCritical?: (stats: PoolStats) => void;
+    onRecovery?: (stats: PoolStats) => void;
+}
+interface PoolMonitor {
+    start(): void;
+    stop(): void;
+    getLastLevel(): 'normal' | 'warning' | 'critical';
+}
+declare function createPoolMonitor(getStats: () => PoolStats, config?: PoolMonitorConfig): PoolMonitor;
+
+interface RetryConfig {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    retryableErrors?: string[];
+}
+declare function isRetryableError(error: unknown, customErrors?: string[]): boolean;
+declare function withRetry<T>(operation: () => Promise<T>, config?: RetryConfig): Promise<T>;
+declare function createTimeoutPromise<T>(timeoutMs: number): Promise<T>;
+
 interface CreateDriverOptions extends DriverConfig {
     dialect?: DialectName;
+    database?: string;
 }
 declare function detectDialect(connectionString: string): DialectName;
 declare function createDriver(options: CreateDriverOptions): Promise<Driver>;
@@ -687,6 +970,462 @@ declare class TenantContextError extends Error {
 declare function validateTenantContext(ctx: TenantContext | undefined, tableName: string): void;
 declare function validateTenantContextOrWarn(ctx: TenantContext | undefined, tableName: string): void;
 
+interface SeedResult {
+    count: number;
+    details?: Record<string, number>;
+}
+interface SeederMetadata {
+    name: string;
+    order: number;
+    dependencies: string[];
+    version: number;
+}
+interface SeederLogger {
+    info(message: string): void;
+    warn(message: string): void;
+    error(message: string): void;
+}
+declare abstract class Seeder {
+    static order: number;
+    static dependencies: string[];
+    static version: number;
+    protected driver: Driver;
+    protected logger: SeederLogger;
+    constructor(driver: Driver, logger?: SeederLogger);
+    abstract run(): Promise<SeedResult>;
+    rollback(): Promise<void>;
+    get metadata(): SeederMetadata;
+    protected query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
+    protected execute(sql: string, params?: unknown[]): Promise<{
+        rowCount: number;
+    }>;
+    protected transaction<T>(fn: (trx: TransactionClient) => Promise<T>): Promise<T>;
+}
+
+type SeederConstructor = new (driver: Driver, logger?: SeederLogger) => Seeder;
+interface LoadedSeeder {
+    name: string;
+    path: string;
+    type: 'typescript' | 'sql';
+    order: number;
+    dependencies: string[];
+    SeederClass?: SeederConstructor & {
+        order?: number;
+        dependencies?: string[];
+        version?: number;
+    };
+    sqlContent?: string;
+}
+interface SeedLoaderOptions {
+    seedsPath?: string;
+}
+declare class SeedLoader {
+    private seedsPath;
+    constructor(options?: SeedLoaderOptions);
+    discover(): Promise<LoadedSeeder[]>;
+    private findSeedFiles;
+    private loadTypeScriptSeeder;
+    private loadSqlSeeder;
+    private extractName;
+    private extractOrderFromFilename;
+    private sortByDependencies;
+    private topologicalSort;
+    createInstance(loaded: LoadedSeeder, driver: Driver, logger?: SeederLogger): Seeder;
+}
+
+interface SeedRunnerOptions {
+    seedsPath?: string;
+    tableName?: string;
+}
+interface SeedRunOptions {
+    only?: string;
+    fresh?: boolean;
+    dryRun?: boolean;
+    force?: boolean;
+    allowProduction?: boolean;
+}
+interface SeederResult {
+    name: string;
+    status: 'success' | 'skipped' | 'failed';
+    count: number;
+    duration: number;
+    error?: string;
+}
+interface SeedRunResult {
+    success: boolean;
+    seeders: SeederResult[];
+    totalCount: number;
+    totalDuration: number;
+}
+declare class SeedRunner {
+    private driver;
+    private dialect;
+    private loader;
+    private tracker;
+    private logger;
+    constructor(driver: Driver, options?: SeedRunnerOptions);
+    run(options?: SeedRunOptions): Promise<SeedRunResult>;
+    rollback(seederName?: string): Promise<void>;
+    status(): Promise<SeedRunResult>;
+    private filterSeeders;
+    private resolveDependencies;
+    private executeSeeder;
+    private runWithTransaction;
+    private dryRunSeeder;
+    private truncateTables;
+}
+declare function createSeedRunner(driver: Driver, options?: SeedRunnerOptions): SeedRunner;
+
+interface SeedTrackerOptions {
+    tableName?: string;
+}
+interface SeedRecord {
+    id: number;
+    name: string;
+    version: number;
+    executed_at: Date;
+    execution_time_ms: number;
+    record_count: number;
+    checksum?: string;
+}
+declare class SeedTracker {
+    private driver;
+    private dialect;
+    private tableName;
+    constructor(driver: Driver, options?: SeedTrackerOptions);
+    ensureTable(): Promise<void>;
+    hasRun(name: string, version: number): Promise<boolean>;
+    record(name: string, version: number, result: SeedResult, duration: number): Promise<void>;
+    remove(name: string): Promise<void>;
+    clear(): Promise<void>;
+    list(): Promise<SeedRecord[]>;
+}
+
+declare class SqlSeederAdapter extends Seeder {
+    private sqlContent;
+    private seederName;
+    constructor(driver: Driver, sqlContent: string, name: string, logger?: SeederLogger);
+    get name(): string;
+    run(): Promise<SeedResult>;
+    private splitStatements;
+}
+
+type BranchStatus = 'active' | 'protected' | 'stale' | 'deleting';
+interface Branch {
+    id: string;
+    name: string;
+    slug: string;
+    schemaName: string;
+    parentBranchId: string | null;
+    gitBranch: string | null;
+    prNumber: number | null;
+    prUrl: string | null;
+    status: BranchStatus;
+    isProtected: boolean;
+    createdAt: Date;
+    createdBy: string | null;
+    lastAccessedAt: Date;
+    deletedAt: Date | null;
+    migrationCount: number;
+    tableCount: number;
+    storageBytes: number;
+    autoDeleteDays: number;
+    copyData: boolean;
+    piiMasking: boolean;
+}
+interface CreateBranchOptions {
+    name: string;
+    parentBranch?: string;
+    gitBranch?: string;
+    prNumber?: number;
+    prUrl?: string;
+    copyData?: boolean;
+    piiMasking?: boolean;
+    autoDeleteDays?: number;
+    createdBy?: string;
+}
+interface SwitchBranchResult {
+    connectionString: string;
+    searchPath: string;
+    schemaName: string;
+}
+interface TableDiff {
+    name: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+interface ColumnDiff {
+    tableName: string;
+    columnName: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceType?: string;
+    targetType?: string;
+    sourceNullable?: boolean;
+    targetNullable?: boolean;
+    sourceDefault?: string;
+    targetDefault?: string;
+    isBreaking: boolean;
+}
+interface IndexDiff {
+    tableName: string;
+    indexName: string;
+    action: 'added' | 'removed' | 'modified';
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+interface ConstraintDiff {
+    tableName: string;
+    constraintName: string;
+    constraintType: 'primary_key' | 'foreign_key' | 'unique' | 'check';
+    action: 'added' | 'removed' | 'modified';
+    isBreaking: boolean;
+    sourceDefinition?: string;
+    targetDefinition?: string;
+}
+type ConflictResolution = 'keep_source' | 'keep_target' | 'manual';
+interface Conflict {
+    type: 'column_type_mismatch' | 'constraint_conflict' | 'table_removed' | 'migration_order';
+    description: string;
+    sourcePath: string;
+    targetPath: string;
+    resolution: ConflictResolution[];
+}
+interface SchemaDiff {
+    source: string;
+    target: string;
+    generatedAt: Date;
+    hasChanges: boolean;
+    canAutoMerge: boolean;
+    tables: TableDiff[];
+    columns: ColumnDiff[];
+    indexes: IndexDiff[];
+    constraints: ConstraintDiff[];
+    conflicts: Conflict[];
+    forwardSql: string[];
+    reverseSql: string[];
+}
+interface MergeOptions {
+    sourceBranch: string;
+    targetBranch: string;
+    dryRun?: boolean;
+    conflictResolution?: Record<string, ConflictResolution>;
+    deleteSourceAfterMerge?: boolean;
+    author?: string;
+}
+interface MergeResult {
+    success: boolean;
+    migrationsApplied: number;
+    conflicts: Conflict[];
+    errors: string[];
+    rollbackAvailable: boolean;
+}
+interface ListBranchesFilter {
+    status?: BranchStatus;
+    parentId?: string;
+    staleDays?: number;
+}
+interface CleanupOptions {
+    maxAgeDays?: number;
+    dryRun?: boolean;
+    skipProtected?: boolean;
+}
+interface CleanupResult {
+    deleted: string[];
+    skipped: string[];
+}
+
+interface BranchManagerOptions {
+    driver: Driver;
+    mainSchemaName?: string;
+    branchPrefix?: string;
+    defaultAutoDeleteDays?: number;
+    metadataTableName?: string;
+}
+declare class BranchManager {
+    private driver;
+    private mainSchema;
+    private branchPrefix;
+    private defaultAutoDeleteDays;
+    private metadataTable;
+    constructor(options: BranchManagerOptions);
+    ensureMetadataTable(): Promise<void>;
+    createBranch(options: CreateBranchOptions): Promise<Branch>;
+    getBranchBySlug(slug: string): Promise<Branch | null>;
+    getBranchById(id: string): Promise<Branch | null>;
+    deleteBranch(branchSlug: string, force?: boolean): Promise<void>;
+    switchBranch(branchSlug: string): Promise<SwitchBranchResult>;
+    diffBranches(sourceBranch: string, targetBranch: string): Promise<SchemaDiff>;
+    mergeBranch(options: MergeOptions): Promise<MergeResult>;
+    listBranches(filter?: ListBranchesFilter): Promise<Branch[]>;
+    cleanupStaleBranches(options?: CleanupOptions): Promise<CleanupResult>;
+    protectBranch(branchSlug: string): Promise<void>;
+    unprotectBranch(branchSlug: string): Promise<void>;
+    updateBranchStats(branchSlug: string): Promise<void>;
+    private cloneSchemaStructure;
+    private cloneSequences;
+    private cloneViews;
+    private copyDataWithMasking;
+    private isPiiColumn;
+    private getTableCount;
+    private generateSlug;
+    private quoteIdent;
+    private resolveSchemaName;
+    private generateConnectionString;
+    private mapBranchRow;
+}
+declare function createBranchManager(options: BranchManagerOptions): BranchManager;
+
+declare class SchemaDiffer {
+    private driver;
+    constructor(driver: Driver);
+    diff(sourceSchema: string, targetSchema: string): Promise<SchemaDiff>;
+    private getSchemaInfo;
+    private diffTables;
+    private diffColumns;
+    private findAddedColumns;
+    private findRemovedColumns;
+    private findModifiedColumns;
+    private diffIndexes;
+    private diffConstraints;
+    private detectConflicts;
+    private generateMigrationSql;
+    private generateTableSql;
+    private shouldCreate;
+    private shouldDrop;
+    private generateColumnSql;
+    private generateSingleColumnSql;
+    private generateIndexSql;
+    private generateSingleIndexSql;
+    private generateConstraintSql;
+    private generateSingleConstraintSql;
+    private getTableDefinition;
+    private getColumnType;
+    private hasColumnChanges;
+    private normalizeDefault;
+    private isBreakingTypeChange;
+    private isAutoGeneratedConstraint;
+    private normalizeIndexDef;
+    private mapConstraintType;
+    private getConstraintDefinition;
+}
+
+interface MigrationRecord {
+    version: number;
+    name: string;
+    scope: 'core' | 'template';
+    checksum: string;
+    upSql: string[];
+    downSql: string[];
+    appliedAt: Date;
+}
+interface MigrationMergerOptions {
+    mainSchema?: string;
+    branchPrefix?: string;
+    migrationsTable?: string;
+}
+declare class MigrationMerger {
+    private driver;
+    private mainSchema;
+    private migrationsTable;
+    constructor(driver: Driver, options?: MigrationMergerOptions);
+    merge(options: MergeOptions): Promise<MergeResult>;
+    getPendingMigrations(_sourceBranch: string, _targetBranch: string): Promise<MigrationRecord[]>;
+    detectMigrationConflicts(migrations: MigrationRecord[], targetBranch: string): Promise<Conflict[]>;
+    private allConflictsResolved;
+    private resolveSchemaName;
+    private tableExists;
+    private computeChecksum;
+    private quoteIdent;
+}
+
+interface ConnectionManagerOptions {
+    driver: Driver;
+    mainSchema?: string;
+    branchPrefix?: string;
+}
+interface BranchConnection {
+    schemaName: string;
+    searchPath: string;
+    connectionString: string;
+}
+declare class ConnectionManager {
+    private driver;
+    private mainSchema;
+    private branchPrefix;
+    private currentSchema;
+    constructor(options: ConnectionManagerOptions);
+    switchToBranch(branchSlug: string): Promise<BranchConnection>;
+    switchToMain(): Promise<BranchConnection>;
+    withBranch<T>(branchSlug: string, callback: (client: TransactionClient) => Promise<T>): Promise<T>;
+    withSchema<T>(schemaName: string, callback: (client: TransactionClient) => Promise<T>): Promise<T>;
+    getCurrentSchema(): string;
+    getCurrentSearchPath(): Promise<string>;
+    validateSchema(schemaName: string): Promise<boolean>;
+    listAvailableSchemas(): Promise<string[]>;
+    generateConnectionString(schemaName: string): string;
+    generateEnvVars(schemaName: string): Record<string, string>;
+    private getSchemaForBranch;
+    private updateLastAccessed;
+}
+declare function createConnectionManager(options: ConnectionManagerOptions): ConnectionManager;
+
+interface CleanupSchedulerOptions {
+    driver: Driver;
+    intervalMs?: number;
+    defaultMaxAgeDays?: number;
+    skipProtected?: boolean;
+    metadataTable?: string;
+    onCleanup?: (result: CleanupResult) => void;
+    onError?: (error: Error) => void;
+}
+interface CleanupJob {
+    id: string;
+    startedAt: Date;
+    completedAt?: Date;
+    result?: CleanupResult;
+    error?: string;
+}
+declare class CleanupScheduler {
+    private driver;
+    private intervalMs;
+    private defaultMaxAgeDays;
+    private skipProtected;
+    private metadataTable;
+    private onCleanup?;
+    private onError?;
+    private intervalId;
+    private isRunning;
+    private lastRun;
+    private history;
+    constructor(options: CleanupSchedulerOptions);
+    start(): void;
+    stop(): void;
+    isScheduled(): boolean;
+    isCurrentlyRunning(): boolean;
+    getLastRun(): CleanupJob | null;
+    getHistory(limit?: number): CleanupJob[];
+    runCleanup(options?: {
+        maxAgeDays?: number;
+        dryRun?: boolean;
+    }): Promise<CleanupResult>;
+    private executeCleanup;
+    private tryDeleteBranch;
+    private recordSuccess;
+    private recordError;
+    getStaleBranches(maxAgeDays: number): Promise<Branch[]>;
+    markAsStale(maxAgeDays: number): Promise<number>;
+    getUpcomingCleanups(daysAhead?: number): Promise<{
+        branch: Branch;
+        daysUntilCleanup: number;
+    }[]>;
+    private deleteBranch;
+    private generateJobId;
+    private quoteIdent;
+    private mapBranchRow;
+}
+declare function createCleanupScheduler(options: CleanupSchedulerOptions): CleanupScheduler;
+
 declare function createDb(options: {
     connectionString: string;
     migrationsPath?: string;
@@ -697,4 +1436,4 @@ declare function createDb(options: {
     strictTenantMode?: boolean;
 }): Promise<DbClient>;
 
-export { Column, type ColumnDefinition, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type ConflictClause, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, Index, type IndexDefinition, type IndexOptions, InsertBuilder, type JoinClause, ManyToMany, ManyToOne, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, PrimaryKey, type QueryAST, type QueryResult, type RegisterSchemaOptions, type RelationMetadata, Repository, SQLCompiler, type SchemaDefinition, SchemaRegistry, type SchemaRegistryOptions, SelectBuilder, TableBuilder, type TableDefinition, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createCompiler, createDb, createDbClient, createDriver, createMigrationCollector, createMigrationRunner, createModuleRegistry, createRepository, createSchemaRegistry, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDialect, getEntityColumns, getEntityTableName, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, sqliteDialect, validateTenantContext, validateTenantContextOrWarn };
+export { type Branch, type BranchConnection, BranchManager, type BranchManagerOptions, type BranchStatus, type CleanupJob, type CleanupOptions, type CleanupResult, CleanupScheduler, type CleanupSchedulerOptions, Column, type ColumnDefinition, type ColumnDiff, type ColumnMetadata, type ColumnOptions, type ColumnType, type CompiledQuery, type CompilerOptions, type Conflict, type ConflictClause, type ConflictResolution, ConnectionManager, type ConnectionManagerOptions, type ConstraintDiff, type CreateBranchOptions, type CreateDriverOptions, DbClient, type DbClientOptions, Default, DeleteBuilder, type Dialect, type DialectName, type DrainOptions, type DrainPhase, type DrainProgress, type DrainResult, type Driver, type DriverConfig, Entity, type EntityConstructor, type EntityMetadata, type EntityOptions, type ExtractSchemaOptions, type FindOneOptions, type FindOptions, type GroupByClause, type HavingClause, type HealthCheckConfig, type HealthCheckResult, Index, type IndexDefinition, type IndexDiff, type IndexOptions, InsertBuilder, type JoinClause, type ListBranchesFilter, type LoadedSeeder, ManyToMany, ManyToOne, type MergeOptions, type MergeResult, MigrationCollector, type MigrationCollectorOptions, type MigrationFile, MigrationMerger, type MigrationMergerOptions, type MigrationRecord, type MigrationResult, type MigrationRunOptions, MigrationRunner, type MigrationRunnerOptions, type MigrationStatus, type ModuleDefinition, type ModuleMigrationSource, ModuleRegistry, type ModuleRegistryOptions, type MongoOperation, type MongoOperationOptions, type MongoOperationType, Nullable, OneToMany, OneToOne, type Operator, type OrderByClause, type PoolMonitor, type PoolMonitorConfig, type PoolStats, PrimaryKey, type QueryAST, type QueryInfo, type QueryResult, QueryTracker, type RegisterSchemaOptions, type RelationMetadata, Repository, type RetryConfig, SQLCompiler, type SchemaDefinition, type SchemaDiff, SchemaDiffer, SchemaRegistry, type SchemaRegistryOptions, SeedLoader, type SeedLoaderOptions, type SeedRecord, type SeedResult, type SeedRunOptions, type SeedRunResult, SeedRunner, type SeedRunnerOptions, SeedTracker, type SeedTrackerOptions, Seeder, type SeederConstructor, type SeederLogger, type SeederMetadata, type SeederResult, SelectBuilder, type SignalHandlerOptions, SqlSeederAdapter, type SwitchBranchResult, TableBuilder, type TableDefinition, type TableDiff, TenantColumn, type TenantContext, TenantContextError, TenantEntity, TenantTimestampedEntity, TimestampedEntity, type TransactionClient, TransactionContext, type TypeGeneratorOptions, Unique, UpdateBuilder, type WhereClause, type WhereCondition, WithTenantColumns, WithTimestamps, applyTenantColumns, applyTimestampColumns, columnToProperty, createBranchManager, createCleanupScheduler, createCompiler, createConnectionManager, createDb, createDbClient, createDriver, createHealthCheckResult, createMigrationCollector, createMigrationRunner, createModuleRegistry, createPoolMonitor, createRepository, createSchemaRegistry, createSeedRunner, createTimeoutPromise, detectDialect, extractSchemaFromEntities, extractSchemaFromEntity, extractTableDefinition, generateSchemaFromDefinition, generateTypes, getDefaultHealthCheckConfig, getDialect, getEntityColumns, getEntityTableName, isRetryableError, metadataStorage, mysqlDialect, postgresDialect, propertyToColumn, registerSignalHandlers, sqliteDialect, validateTenantContext, validateTenantContextOrWarn, withRetry };

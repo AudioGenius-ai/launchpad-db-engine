@@ -2,12 +2,35 @@ export * from './types/index.js';
 
 export * from './orm/index.js';
 
-export { createDriver, detectDialect } from './driver/index.js';
+export {
+  createDriver,
+  detectDialect,
+  createHealthCheckResult,
+  getDefaultHealthCheckConfig,
+  createPoolMonitor,
+  isRetryableError,
+  withRetry,
+  createTimeoutPromise,
+  registerSignalHandlers,
+  QueryTracker,
+} from './driver/index.js';
 export type {
   Driver,
   DriverConfig,
   TransactionClient,
   CreateDriverOptions,
+  PoolStats,
+  HealthCheckResult,
+  HealthCheckConfig,
+  PoolMonitorConfig,
+  PoolMonitor,
+  RetryConfig,
+  DrainOptions,
+  DrainProgress,
+  DrainResult,
+  DrainPhase,
+  QueryInfo,
+  SignalHandlerOptions,
 } from './driver/index.js';
 
 export { SQLCompiler, createCompiler } from './compiler/index.js';
@@ -116,6 +139,65 @@ export {
   validateTenantContext,
   validateTenantContextOrWarn,
 } from './utils/tenant-validation.js';
+
+export {
+  Seeder,
+  SeedRunner,
+  createSeedRunner,
+  SeedLoader,
+  SeedTracker,
+  SqlSeederAdapter,
+} from './seed/index.js';
+export type {
+  SeedResult,
+  SeederMetadata,
+  SeederLogger,
+  LoadedSeeder,
+  SeedLoaderOptions,
+  SeederConstructor,
+  SeedRunnerOptions,
+  SeedRunOptions,
+  SeedRunResult,
+  SeederResult,
+  SeedTrackerOptions,
+  SeedRecord,
+} from './seed/index.js';
+
+export {
+  BranchManager,
+  createBranchManager,
+  SchemaDiffer,
+  MigrationMerger,
+  ConnectionManager,
+  createConnectionManager,
+  CleanupScheduler,
+  createCleanupScheduler,
+} from './branch/index.js';
+export type {
+  Branch,
+  BranchStatus,
+  CreateBranchOptions,
+  SwitchBranchResult,
+  SchemaDiff,
+  TableDiff,
+  ColumnDiff,
+  IndexDiff,
+  ConstraintDiff,
+  Conflict,
+  ConflictResolution,
+  MergeOptions,
+  MergeResult,
+  ListBranchesFilter,
+  CleanupOptions,
+  CleanupResult,
+  BranchManagerOptions,
+  ConnectionManagerOptions,
+  BranchConnection,
+  CleanupSchedulerOptions,
+  CleanupJob,
+  MigrationMergerOptions,
+  MigrationRecord,
+} from './branch/index.js';
 
 export async function createDb(options: {
   connectionString: string;

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>AudioGenius-ai/renovate-config"],
+  "packageRules": [
+    {
+      "description": "Group database drivers",
+      "matchPackagePatterns": ["^postgres", "^mysql2", "^better-sqlite3", "^mongodb"],
+      "groupName": "database-drivers"
+    }
+  ]
+}
