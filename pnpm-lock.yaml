@@ -11,6 +11,9 @@ importers:
       postgres:
         specifier: ^3.4.5
         version: 3.4.7
+      zod:
+        specifier: '>=3.0.0'
+        version: 4.3.4
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.0
@@ -1473,6 +1476,9 @@ packages:
     resolution: {integrity: sha512-Ow9nuGZE+qp1u4JIPvg+uCiUr7xGQWdff7JQSk5VGYTAZMDe2q8lxJ10ygv10qmSj031Ty/6FNJpLO4o1Sgc+w==}
     engines: {node: '>=12'}
 
+  zod@4.3.4:
+    resolution: {integrity: sha512-Zw/uYiiyF6pUT1qmKbZziChgNPRu+ZRneAsMUDU6IwmXdWt5JwcUfy2bvLOCUtz5UniaN/Zx5aFttZYbYc7O/A==}
+
 snapshots:
 
   '@ampproject/remapping@2.3.0':
@@ -2786,3 +2792,5 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       pend: 1.2.0
+
+  zod@4.3.4: {}
