@@ -34,6 +34,9 @@ interface ParsedArgs {
   'modules-path'?: string;
   watch?: boolean;
   'debounce-ms'?: string;
+  zod?: boolean;
+  'no-insert'?: boolean;
+  'no-update'?: boolean;
 }
 
 interface Config {
@@ -67,10 +70,23 @@ Global Options:
   --migrations     Path to migrations directory (default: ./migrations)
   --help           Show this help message
 
-Type Generation Options:
-  --output         Output path for generated types (default: ./generated/types.ts)
+Type Generation Options (types:generate):
+  --output         Output file path (default: ./generated/types.ts)
+  --app-id         Filter schemas by app ID
   --watch          Watch for schema changes and regenerate types automatically
   --debounce-ms    Debounce interval in milliseconds (default: 500)
+  --no-insert      Skip Insert type generation
+  --no-update      Skip Update type generation
+  --zod            Generate Zod validation schemas (requires 'zod' peer dep)
+
+  Generated types include:
+    - Row types: Full table interface with all columns
+    - Insert types: Omits auto-generated fields (id, created_at, updated_at)
+    - Update types: All fields optional (for partial updates)
+
+  With --zod flag, also generates:
+    - Zod schemas for runtime validation
+    - Type inference from schemas (z.infer<typeof schema>)
 
 Module Options:
   --modules-path   Path to modules directory (default: ./migrations/modules)
@@ -91,6 +107,8 @@ Examples:
   launchpad-db module:register --name workflows --display-name "Workflows Engine" --version 1.0.0 --migration-prefix workflows
   launchpad-db types:generate --output ./src/types.ts
   launchpad-db types:generate --watch --output ./src/types.ts
+  launchpad-db types:generate --output ./src/types.ts --zod
+  launchpad-db types:generate --output ./src/types.ts --no-insert --no-update
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -154,11 +172,17 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
       appId: args['app-id'],
       outputPath: args.output,
       debounceMs,
+      includeZodSchemas: args.zod,
+      includeInsertTypes: !args['no-insert'],
+      includeUpdateTypes: !args['no-update'],
     });
   } else {
     await generateTypesFromRegistry(config, {
       appId: args['app-id'],
       outputPath: args.output,
+      includeZodSchemas: args.zod,
+      includeInsertTypes: !args['no-insert'],
+      includeUpdateTypes: !args['no-update'],
     });
   }
 }
@@ -239,6 +263,9 @@ function parseCliArgs(args: string[]): ParsedArgs {
       'modules-path': { type: 'string' },
       watch: { type: 'boolean', default: false },
       'debounce-ms': { type: 'string' },
+      zod: { type: 'boolean', default: false },
+      'no-insert': { type: 'boolean', default: false },
+      'no-update': { type: 'boolean', default: false },
     },
     allowPositionals: true,
   });
