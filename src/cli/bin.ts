@@ -24,6 +24,8 @@ interface ParsedArgs {
   name?: string;
   'app-id'?: string;
   output?: string;
+  hooks?: string;
+  'no-hooks'?: boolean;
   version?: string;
   file?: string;
   'display-name'?: string;
@@ -56,8 +58,17 @@ Commands:
   migrate:modules  Run module migrations
   module:list      List registered modules
   module:register  Register a module
-  types:generate   Generate TypeScript types from registered schemas
+  types:generate   Generate TypeScript types and React Query hooks from schemas
+                   - Generates Row, Insert, and Update types per table
+                   - Generates React Query hooks for each table
+                   - Hooks integrate with @launchpad/db SDK
   schema:register  Register a schema from a file
+
+Types Generate Options:
+  --output         Types output file path (default: ./generated/types.ts)
+  --hooks          Hooks output file path (default: ./generated/hooks.ts)
+  --app-id         Filter schemas by app ID
+  --no-hooks       Skip hooks generation (types only)
 
 Global Options:
   --db-url         Database connection string (or set DATABASE_URL env var)
@@ -82,6 +93,8 @@ Examples:
   launchpad-db module:list
   launchpad-db module:register --name workflows --display-name "Workflows Engine" --version 1.0.0 --migration-prefix workflows
   launchpad-db types:generate --output ./src/types.ts
+  launchpad-db types:generate --output ./src/types.ts --hooks ./src/hooks.ts
+  launchpad-db types:generate --output ./src/types.ts --no-hooks
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -142,6 +155,8 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
   await generateTypesFromRegistry(config, {
     appId: args['app-id'],
     outputPath: args.output,
+    hooksPath: args.hooks,
+    noHooks: args['no-hooks'],
   });
 }
 
@@ -212,6 +227,8 @@ function parseCliArgs(args: string[]): ParsedArgs {
       name: { type: 'string' },
       'app-id': { type: 'string' },
       output: { type: 'string' },
+      hooks: { type: 'string' },
+      'no-hooks': { type: 'boolean', default: false },
       version: { type: 'string' },
       file: { type: 'string' },
       'display-name': { type: 'string' },

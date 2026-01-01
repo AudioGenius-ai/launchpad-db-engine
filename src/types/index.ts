@@ -169,6 +169,11 @@ export interface QueryResult<T = Record<string, unknown>> {
   rowCount: number;
 }
 
+export { generateTypes } from './generator.js';
+export type { TypeGeneratorOptions } from './generator.js';
+export { generateHooks } from './hooks-generator.js';
+export type { HooksGeneratorOptions } from './hooks-generator.js';
+
 export type MongoOperationType =
   | 'find'
   | 'aggregate'

@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createDriver } from '../driver/index.js';
 import { getDialect } from '../migrations/dialects/index.js';
 import { MigrationRunner } from '../migrations/runner.js';
@@ -15,6 +15,7 @@ import {
 } from '../schema/index.js';
 import { SchemaRegistry } from '../schema/registry.js';
 import { generateTypes } from '../types/generator.js';
+import { generateHooks } from '../types/hooks-generator.js';
 import type { SchemaDefinition } from '../types/index.js';
 
 export interface CliConfig {
@@ -160,6 +161,8 @@ export async function generateTypesFromRegistry(
   options: {
     appId?: string;
     outputPath?: string;
+    hooksPath?: string;
+    noHooks?: boolean;
   }
 ): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
@@ -179,12 +182,23 @@ export async function generateTypesFromRegistry(
     }
 
     const types = generateTypes(schemaMap);
-    const outputPath = options.outputPath ?? config.typesOutputPath ?? './generated/types.ts';
+    const typesOutputPath = options.outputPath ?? config.typesOutputPath ?? './generated/types.ts';
 
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, types, 'utf-8');
+    await mkdir(dirname(typesOutputPath), { recursive: true });
+    await writeFile(typesOutputPath, types, 'utf-8');
 
-    console.log(`Generated types: ${outputPath}`);
+    console.log(`Generated types: ${typesOutputPath}`);
+
+    if (!options.noHooks) {
+      const hooks = generateHooks(schemaMap, {
+        typesImportPath: `./${basename(typesOutputPath, '.ts')}`,
+      });
+      const hooksOutputPath = options.hooksPath ?? './generated/hooks.ts';
+      await mkdir(dirname(hooksOutputPath), { recursive: true });
+      await writeFile(hooksOutputPath, hooks, 'utf-8');
+      console.log(`Generated hooks: ${hooksOutputPath}`);
+    }
+
     console.log(`  Schemas: ${Array.from(schemaMap.keys()).join(', ')}`);
   } finally {
     await driver.close();
