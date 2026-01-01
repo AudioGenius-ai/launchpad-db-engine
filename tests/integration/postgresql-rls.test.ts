@@ -75,13 +75,11 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_policy_change DISABLE');
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_table_create DISABLE');
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_rls_enable DISABLE');
-    } catch {
-    }
+    } catch {}
 
     try {
       await driver.execute(`DROP ROLE IF EXISTS ${testRole}`);
-    } catch {
-    }
+    } catch {}
     await driver.execute(`CREATE ROLE ${testRole} NOLOGIN`);
 
     await driver.execute(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
@@ -150,14 +148,12 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
     await driver.execute(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
     try {
       await driver.execute(`DROP ROLE IF EXISTS ${testRole}`);
-    } catch {
-    }
+    } catch {}
     try {
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_policy_change ENABLE');
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_table_create ENABLE');
       await driver.execute('ALTER EVENT TRIGGER auto_perms_on_rls_enable ENABLE');
-    } catch {
-    }
+    } catch {}
     await client.close();
   });
 
@@ -214,7 +210,9 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
 
     it('should handle WHERE clause combined with RLS filtering', async () => {
       const result = await withRLS(TENANT_A, async (trx) => {
-        return trx.raw<{ title: string }>(`SELECT title FROM ${tableName} WHERE title LIKE 'Doc A%'`);
+        return trx.raw<{ title: string }>(
+          `SELECT title FROM ${tableName} WHERE title LIKE 'Doc A%'`
+        );
       });
 
       expect(result.rows).toHaveLength(3);
@@ -356,7 +354,9 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
   describe('DELETE Enforcement', () => {
     it('should only DELETE rows belonging to current tenant', async () => {
       const result = await withRLS(TENANT_A, async (trx) => {
-        return trx.raw<{ id: number }>(`DELETE FROM ${tableName} WHERE title = 'Doc A1' RETURNING id`);
+        return trx.raw<{ id: number }>(
+          `DELETE FROM ${tableName} WHERE title = 'Doc A1' RETURNING id`
+        );
       });
 
       expect(result.rows).toHaveLength(1);
@@ -376,7 +376,9 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
 
     it('should affect 0 rows when targeting another tenant data', async () => {
       const result = await withRLS(TENANT_A, async (trx) => {
-        return trx.raw<{ id: number }>(`DELETE FROM ${tableName} WHERE title = 'Doc B1' RETURNING id`);
+        return trx.raw<{ id: number }>(
+          `DELETE FROM ${tableName} WHERE title = 'Doc B1' RETURNING id`
+        );
       });
 
       expect(result.rows).toHaveLength(0);
@@ -454,7 +456,13 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
           await trx.execute(
             `INSERT INTO ${tableName} (title, content, app_id, organization_id, created_by)
              VALUES ($1, $2, $3, $4, $5)`,
-            ['Rollback Doc', 'Will be rolled back', TENANT_A.appId, TENANT_A.organizationId, 'user-a']
+            [
+              'Rollback Doc',
+              'Will be rolled back',
+              TENANT_A.appId,
+              TENANT_A.organizationId,
+              'user-a',
+            ]
           );
 
           const midCount = await trx.raw<{ count: string }>(
@@ -506,7 +514,13 @@ describe.skipIf(!process.env.DATABASE_URL)('PostgreSQL RLS Policy Enforcement', 
           await trx.execute(
             `INSERT INTO ${tableName} (title, content, app_id, organization_id, created_by)
              VALUES ($1, $2, $3, $4, $5)`,
-            [`Batch Doc ${i}`, `Batch content ${i}`, TENANT_A.appId, TENANT_A.organizationId, 'batch-user']
+            [
+              `Batch Doc ${i}`,
+              `Batch content ${i}`,
+              TENANT_A.appId,
+              TENANT_A.organizationId,
+              'batch-user',
+            ]
           );
         }
       });
