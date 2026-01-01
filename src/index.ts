@@ -68,6 +68,66 @@ export type {
 export { SchemaRegistry, createSchemaRegistry } from './schema/index.js';
 export type { SchemaRegistryOptions, RegisterSchemaOptions } from './schema/index.js';
 
+export {
+  SchemaIntrospector,
+  createSchemaIntrospector,
+  SchemaDiffEngine,
+  createSchemaDiffEngine,
+  SchemaSyncService,
+  createSchemaSyncService,
+  SyncMetadataManager,
+  createSyncMetadataManager,
+  SchemaRemoteError,
+  BreakingChangeError,
+  ConflictError,
+  AuthenticationError,
+  UserCancelledError,
+} from './schema/index.js';
+export type {
+  SchemaDiffOptions,
+  SchemaSyncServiceOptions,
+  Logger,
+  SyncMetadataOptions,
+  IntrospectedColumn,
+  IntrospectedIndex,
+  IntrospectedForeignKey,
+  IntrospectedConstraint,
+  IntrospectedTable,
+  IntrospectedEnum,
+  SchemaIntrospectionResult,
+  IntrospectOptions,
+  ChangeType,
+  SchemaChange,
+  DiffSummary,
+  MigrationScript,
+  SchemaSyncDiff,
+  SyncStatus,
+  PullOptions,
+  PushOptions,
+  DiffOptions,
+  PullResult,
+  PushResult,
+  RemoteSchemaResponse,
+  RemotePushResult,
+  RemoteSyncStatus,
+} from './schema/index.js';
+
+export {
+  SchemaRemoteClient,
+  createSchemaRemoteClient,
+  AuthHandler,
+  createAuthHandler,
+} from './remote/index.js';
+export type {
+  SchemaRemoteClientOptions,
+  Credentials,
+  AuthConfig,
+  RemoteConfig,
+  RemotePushOptions,
+  RemoteHealthResponse,
+  RemoteApiError,
+} from './remote/index.js';
+
 export { generateTypes, generateSchemaFromDefinition } from './types/generator.js';
 export type { TypeGeneratorOptions } from './types/generator.js';
 

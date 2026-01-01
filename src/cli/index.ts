@@ -1,10 +1,18 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createDriver } from '../driver/index.js';
+import { getDialect } from '../migrations/dialects/index.js';
 import { MigrationRunner } from '../migrations/runner.js';
 import { MigrationCollector } from '../modules/collector.js';
 import { ModuleRegistry } from '../modules/registry.js';
 import type { ModuleDefinition } from '../modules/types.js';
+import { createAuthHandler } from '../remote/auth.js';
+import { createSchemaRemoteClient } from '../remote/client.js';
+import {
+  BreakingChangeError,
+  UserCancelledError,
+  createSchemaSyncService,
+} from '../schema/index.js';
 import { SchemaRegistry } from '../schema/registry.js';
 import { generateTypes } from '../types/generator.js';
 import type { SchemaDefinition } from '../types/index.js';
@@ -360,6 +368,235 @@ export async function runModuleMigrations(
         );
         break;
       }
+    }
+  } finally {
+    await driver.close();
+  }
+}
+
+export interface SyncConfig {
+  databaseUrl: string;
+  apiUrl: string;
+  projectId: string;
+  appId: string;
+  migrationsPath?: string;
+}
+
+export async function pullSchema(
+  config: SyncConfig,
+  options: {
+    environment?: string;
+    dryRun?: boolean;
+    force?: boolean;
+  } = {}
+): Promise<void> {
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const dialect = getDialect(driver.dialect);
+
+  const authHandler = createAuthHandler();
+  let authToken: string;
+
+  try {
+    authToken = await authHandler.getToken();
+  } catch (error) {
+    console.error('Authentication required. Run `launchpad login` first.');
+    await driver.close();
+    process.exit(1);
+  }
+
+  const remoteClient = createSchemaRemoteClient({
+    apiUrl: config.apiUrl,
+    projectId: config.projectId,
+    authToken,
+  });
+
+  const syncService = createSchemaSyncService(driver, dialect, remoteClient, {
+    appId: config.appId,
+    migrationsPath: config.migrationsPath,
+  });
+
+  try {
+    const result = await syncService.pull({
+      environment: options.environment,
+      dryRun: options.dryRun,
+      force: options.force,
+    });
+
+    if (result.applied) {
+      console.log(`\n✓ Applied ${result.diff.changes.length} change(s)`);
+    } else if (!result.diff.hasDifferences) {
+      console.log('\n✓ Local schema is already up to date');
+    }
+  } catch (error) {
+    if (error instanceof BreakingChangeError) {
+      console.error(`\n✗ ${error.message}`);
+      console.error('\nBreaking changes detected:');
+      for (const change of error.changes) {
+        console.error(`  - ${change.description}`);
+      }
+      process.exit(1);
+    }
+    throw error;
+  } finally {
+    await driver.close();
+  }
+}
+
+export async function pushSchema(
+  config: SyncConfig,
+  options: {
+    environment?: string;
+    dryRun?: boolean;
+    force?: boolean;
+  } = {}
+): Promise<void> {
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const dialect = getDialect(driver.dialect);
+
+  const authHandler = createAuthHandler();
+  let authToken: string;
+
+  try {
+    authToken = await authHandler.getToken();
+  } catch (error) {
+    console.error('Authentication required. Run `launchpad login` first.');
+    await driver.close();
+    process.exit(1);
+  }
+
+  const remoteClient = createSchemaRemoteClient({
+    apiUrl: config.apiUrl,
+    projectId: config.projectId,
+    authToken,
+  });
+
+  const syncService = createSchemaSyncService(driver, dialect, remoteClient, {
+    appId: config.appId,
+    migrationsPath: config.migrationsPath,
+  });
+
+  try {
+    const result = await syncService.push({
+      environment: options.environment,
+      dryRun: options.dryRun,
+      force: options.force,
+    });
+
+    if (result.applied) {
+      console.log(`\n✓ Pushed ${result.diff.changes.length} change(s) to remote`);
+    } else if (!result.diff.hasDifferences) {
+      console.log('\n✓ Remote schema is already up to date');
+    }
+  } catch (error) {
+    if (error instanceof BreakingChangeError) {
+      console.error(`\n✗ ${error.message}`);
+      console.error('\nBreaking changes detected:');
+      for (const change of error.changes) {
+        console.error(`  - ${change.description}`);
+      }
+      process.exit(1);
+    }
+    if (error instanceof UserCancelledError) {
+      console.error(`\n${error.message}`);
+      process.exit(1);
+    }
+    throw error;
+  } finally {
+    await driver.close();
+  }
+}
+
+export async function diffSchema(
+  config: SyncConfig,
+  options: {
+    environment?: string;
+    outputFormat?: 'text' | 'json' | 'sql';
+  } = {}
+): Promise<void> {
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const dialect = getDialect(driver.dialect);
+
+  const authHandler = createAuthHandler();
+  let authToken: string;
+
+  try {
+    authToken = await authHandler.getToken();
+  } catch (error) {
+    console.error('Authentication required. Run `launchpad login` first.');
+    await driver.close();
+    process.exit(1);
+  }
+
+  const remoteClient = createSchemaRemoteClient({
+    apiUrl: config.apiUrl,
+    projectId: config.projectId,
+    authToken,
+  });
+
+  const syncService = createSchemaSyncService(driver, dialect, remoteClient, {
+    appId: config.appId,
+    migrationsPath: config.migrationsPath,
+  });
+
+  try {
+    const diff = await syncService.diff({
+      environment: options.environment,
+    });
+
+    const output = syncService.formatDiff(diff, options.outputFormat ?? 'text');
+    console.log(output);
+
+    if (diff.hasDifferences) {
+      process.exit(1);
+    }
+  } finally {
+    await driver.close();
+  }
+}
+
+export async function getSyncStatus(config: SyncConfig): Promise<void> {
+  const driver = await createDriver({ connectionString: config.databaseUrl });
+  const dialect = getDialect(driver.dialect);
+
+  const authHandler = createAuthHandler();
+  let authToken: string;
+
+  try {
+    authToken = await authHandler.getToken();
+  } catch (error) {
+    console.error('Authentication required. Run `launchpad login` first.');
+    await driver.close();
+    process.exit(1);
+  }
+
+  const remoteClient = createSchemaRemoteClient({
+    apiUrl: config.apiUrl,
+    projectId: config.projectId,
+    authToken,
+  });
+
+  const syncService = createSchemaSyncService(driver, dialect, remoteClient, {
+    appId: config.appId,
+    migrationsPath: config.migrationsPath,
+  });
+
+  try {
+    const status = await syncService.getSyncStatus();
+
+    if (!status) {
+      console.log('No sync history found. Run `db pull` or `db push` to sync.');
+      return;
+    }
+
+    console.log('\n=== Sync Status ===\n');
+    console.log(`Status: ${status.syncStatus}`);
+    console.log(`Last sync: ${status.lastSyncAt?.toISOString() ?? 'Never'}`);
+    console.log(`Direction: ${status.lastSyncDirection ?? 'N/A'}`);
+    console.log(`Local checksum: ${status.localChecksum ?? 'N/A'}`);
+    console.log(`Remote checksum: ${status.remoteChecksum ?? 'N/A'}`);
+
+    if (status.syncStatus === 'conflict') {
+      console.log('\n⚠️  Conflict detected! Manual resolution required.');
     }
   } finally {
     await driver.close();
