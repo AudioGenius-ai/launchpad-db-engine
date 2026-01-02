@@ -81,6 +81,21 @@ N/A - This is a database engine library, not an HTTP service.
 | `generateZodSchemas(schemas, options?)` | Generate Zod validation schemas from schema definitions | `Map<string, SchemaDefinition>, TypeGeneratorOptions?` |
 | `generateSchemaFromDefinition(schema)` | Generate schema code from a SchemaDefinition object | `SchemaDefinition` |
 
+### React Query Hooks Generator (`src/types/hooks-generator.ts`) - TASK-396
+
+| Function | Purpose | Parameters |
+|----------|---------|------------|
+| `generateHooks(schemas, options?)` | Generate typed React Query hooks for each table | `Map<string, SchemaDefinition>, HooksGeneratorOptions?` |
+
+**Generated Hooks (per table):**
+| Hook | Purpose | Parameters |
+|------|---------|------------|
+| `use{TableNamePlural}(options?)` | List query hook for fetching all records | `QueryOptions` (without table) |
+| `use{TableNameSingular}(id, options?)` | Single record query hook by primary key | `id: string\|number, QueryOptions` |
+| `useInsert{TableNameSingular}(options?)` | Insert mutation hook | `MutationOptions` |
+| `useUpdate{TableNameSingular}(options?)` | Update mutation hook | `MutationOptions` |
+| `useDelete{TableNameSingular}(options?)` | Delete mutation hook | `MutationOptions` |
+
 ### CLI Watch Mode (`src/cli/index.ts`) - TASK-397
 
 | Function | Purpose | Parameters |
@@ -99,7 +114,7 @@ N/A - This is a database engine library, not an HTTP service.
 
 ## CLI Commands
 
-### Type Generation (`types:generate`) - TASK-395, TASK-397
+### Type Generation (`types:generate`) - TASK-395, TASK-396, TASK-397
 
 ```bash
 launchpad-db types:generate [options]
@@ -107,18 +122,29 @@ launchpad-db types:generate [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--output` | Output file path | `./generated/types.ts` |
+| `--output` | Types output file path | `./generated/types.ts` |
+| `--hooks` | Hooks output file path | `./generated/hooks.ts` |
 | `--app-id` | Filter schemas by app ID | (all schemas) |
+| `--no-hooks` | Skip React Query hooks generation | false |
 | `--no-insert` | Skip Insert type generation | false |
 | `--no-update` | Skip Update type generation | false |
 | `--zod` | Generate Zod validation schemas | false |
 | `--watch` | Watch for schema changes and regenerate automatically | false |
 | `--debounce-ms` | Debounce interval in milliseconds | 500 |
+| `--insert-suffix` | Custom suffix for Insert types | `Insert` |
+| `--update-suffix` | Custom suffix for Update types | `Update` |
 
 **Generated Types:**
 - **Row types**: Full table interface with all columns
 - **Insert types**: Omits auto-generated fields (id, created_at, updated_at)
 - **Update types**: All fields optional for partial updates
+
+**Generated React Query Hooks (TASK-396):**
+- **List hooks**: `use{TablePlural}(options?)` - Fetch all records with optional filtering
+- **Single hooks**: `use{TableSingular}(id, options?)` - Fetch single record by primary key
+- **Insert hooks**: `useInsert{TableSingular}(options?)` - Insert mutation
+- **Update hooks**: `useUpdate{TableSingular}(options?)` - Update mutation
+- **Delete hooks**: `useDelete{TableSingular}(options?)` - Delete mutation
 
 **With `--zod` flag:**
 - Zod schemas for runtime validation
@@ -141,6 +167,8 @@ interface TypeGeneratorOptions {
   includeUpdateTypes?: boolean;  // Default: true
   includeZodSchemas?: boolean;   // Default: false
   omitTenantColumns?: boolean;   // Default: true
+  insertSuffix?: string;         // Default: 'Insert' (e.g., UserInsert)
+  updateSuffix?: string;         // Default: 'Update' (e.g., UserUpdate)
 }
 ```
 
@@ -405,15 +433,23 @@ Generates TypeScript types and Zod schemas from registered database schemas:
 // CLI
 launchpad-db types:generate --output ./src/db/types.ts --zod
 
+# Custom type suffixes (UserCreate, UserPatch instead of UserInsert, UserUpdate)
+launchpad-db types:generate --output ./src/types.ts --insert-suffix Create --update-suffix Patch
+
 // Programmatic
 import { generateTypes, generateZodSchemas } from '@launchpad/db-engine';
 
 const types = generateTypes(schemaMap, {
   includeInsertTypes: true,
   includeUpdateTypes: true,
+  insertSuffix: 'Create',  // UserCreate instead of UserInsert
+  updateSuffix: 'Patch',   // UserPatch instead of UserUpdate
 });
 
-const zodSchemas = generateZodSchemas(schemaMap);
+const zodSchemas = generateZodSchemas(schemaMap, {
+  insertSuffix: 'Create',
+  updateSuffix: 'Patch',
+});
 ```
 
 ### Watch Mode Pattern (TASK-397)
@@ -538,6 +574,21 @@ launchpad-db types:generate --watch --app-id myapp --output ./src/types.ts
 ```
 
 ## Recent Changes
+
+- **[TASK-395]**: Added customizable Insert/Update type suffixes to CLI
+  - Added `--insert-suffix` and `--update-suffix` CLI options for custom type naming
+  - Extended `TypeGeneratorOptions` interface with `insertSuffix` and `updateSuffix` properties
+  - Both `generateTypes()` and `generateZodSchemas()` support custom suffixes
+  - Defaults: `Insert` suffix for insert types, `Update` suffix for update types
+  - Example: `--insert-suffix Create --update-suffix Patch` generates `UserCreate`, `UserPatch` instead of `UserInsert`, `UserUpdate`
+  - Added 8 new unit tests for suffix customization covering TypeScript interfaces and Zod schemas
+  - All 30 generator tests pass
+  - Files changed:
+    - `src/types/generator.ts` - Added insertSuffix/updateSuffix options with defaults
+    - `src/cli/bin.ts` - Added --insert-suffix and --update-suffix CLI flags
+    - `src/cli/index.ts` - Updated generateTypesFromRegistry and watchAndGenerateTypes to pass suffix options
+    - `src/types/generator.test.ts` - 8 new test cases for suffix customization
+  - PR #27: https://github.com/AudioGenius-ai/launchpad-db-engine/pull/27
 
 - **[TASK-404]**: Added RLS policy enforcement integration tests for PostgreSQL driver
   - Created comprehensive test suite verifying Row-Level Security enforcement with db-engine
