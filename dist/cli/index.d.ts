@@ -27,11 +27,21 @@ declare function createMigration(config: CliConfig, options: {
 declare function generateTypesFromRegistry(config: CliConfig, options: {
     appId?: string;
     outputPath?: string;
+    includeZodSchemas?: boolean;
+    includeInsertTypes?: boolean;
+    includeUpdateTypes?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
 }): Promise<void>;
 interface WatchOptions {
     appId?: string;
     outputPath?: string;
     debounceMs?: number;
+    includeZodSchemas?: boolean;
+    includeInsertTypes?: boolean;
+    includeUpdateTypes?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
 }
 declare function watchAndGenerateTypes(config: CliConfig, options: WatchOptions): Promise<void>;
 declare function registerSchema(config: CliConfig, options: {
