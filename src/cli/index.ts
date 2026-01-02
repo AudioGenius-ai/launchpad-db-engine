@@ -198,8 +198,12 @@ export async function generateTypesFromRegistry(
 
     console.log(`Generated types: ${outputPath}`);
     console.log(`  Schemas: ${Array.from(schemaMap.keys()).join(', ')}`);
-    console.log(`  Insert types: ${generatorOptions.includeInsertTypes ? 'yes' : 'no'}${options.insertSuffix ? ` (suffix: ${options.insertSuffix})` : ''}`);
-    console.log(`  Update types: ${generatorOptions.includeUpdateTypes ? 'yes' : 'no'}${options.updateSuffix ? ` (suffix: ${options.updateSuffix})` : ''}`);
+    console.log(
+      `  Insert types: ${generatorOptions.includeInsertTypes ? 'yes' : 'no'}${options.insertSuffix ? ` (suffix: ${options.insertSuffix})` : ''}`
+    );
+    console.log(
+      `  Update types: ${generatorOptions.includeUpdateTypes ? 'yes' : 'no'}${options.updateSuffix ? ` (suffix: ${options.updateSuffix})` : ''}`
+    );
 
     if (options.includeZodSchemas) {
       const zodSchemas = generateZodSchemas(schemaMap, generatorOptions);
