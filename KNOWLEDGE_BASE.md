@@ -181,6 +181,15 @@ interface WatchOptions {
 }
 ```
 
+### HooksGeneratorOptions (TASK-396)
+```typescript
+interface HooksGeneratorOptions {
+  includeQueryHooks?: boolean;     // Default: true - Generate list/single query hooks
+  includeMutationHooks?: boolean;  // Default: true - Generate create/update/delete hooks
+  typesImportPath?: string;        // Default: './types' - Import path for generated types
+}
+```
+
 ### DrainOptions (TASK-363)
 ```typescript
 interface DrainOptions {
@@ -525,6 +534,11 @@ launchpad-db types:generate --watch --app-id myapp --output ./src/types.ts
 **Decision**: Create a dedicated test role (`test_rls_user`) with no login, grant table permissions, and use `SET ROLE` within transactions to execute queries as that role.
 **Consequence**: Accurate RLS enforcement testing without modifying production code. `FORCE ROW LEVEL SECURITY` on test tables ensures even superuser queries go through RLS when using `SET ROLE`. Role cleanup in `afterAll` prevents test pollution.
 
+### ADR-010: React Query Hooks Generation (TASK-396)
+**Context**: Developers using @launchpad/db SDK with React need boilerplate-free hooks for CRUD operations on each database table.
+**Decision**: Add `generateHooks()` function that generates typed React Query hooks for each table, with 5 hooks per table (list, single, create, update, delete).
+**Consequence**: Zero-boilerplate React integration with full TypeScript support. Generated hooks use existing `@launchpad/db/react` primitives (useQuery, useInsert, etc.). CLI flags `--hooks` and `--hooks-output` control generation. Proper singularization handles common table naming conventions.
+
 ## Test Fixtures
 
 ### SQL Injection Prevention (`tests/fixtures/special-characters.ts`)
@@ -574,6 +588,28 @@ launchpad-db types:generate --watch --app-id myapp --output ./src/types.ts
 ```
 
 ## Recent Changes
+
+- **[TASK-396]**: Added React Query hooks generation to CLI
+  - Implemented `generateHooks()` function in `src/types/hooks-generator.ts`
+  - Added `--hooks` and `--hooks-output` CLI flags to `types:generate` command
+  - Generates 5 typed hooks per database table:
+    - `use{TablePlural}(options?)` - List query hook for fetching all records
+    - `use{TableSingular}(id, options?)` - Single record query hook by primary key
+    - `useCreate{TableSingular}(options?)` - Insert mutation hook
+    - `useUpdate{TableSingular}(options?)` - Update mutation hook
+    - `useDelete{TableSingular}(options?)` - Delete mutation hook
+  - Implements snake_case to PascalCase conversion for table names
+  - Includes proper singularization rules (contacts → Contact, categories → Category)
+  - Generated hooks use `@launchpad/db/react` hooks under the hood (useQuery, useInsert, etc.)
+  - Watch mode support for automatic hooks regeneration
+  - 20 unit tests for hooks generator
+  - Files created/changed:
+    - `src/types/hooks-generator.ts` - Main hooks generator module (NEW)
+    - `src/types/hooks-generator.test.ts` - Unit tests (NEW)
+    - `src/cli/bin.ts` - Added --hooks and --hooks-output CLI flags
+    - `src/cli/index.ts` - Integrated hooks generation into generateTypesFromRegistry and watchAndGenerateTypes
+    - `src/index.ts` - Exported generateHooks and HooksGeneratorOptions
+  - PR #28: https://github.com/AudioGenius-ai/launchpad-db-engine/pull/28
 
 - **[TASK-395]**: Added customizable Insert/Update type suffixes to CLI
   - Added `--insert-suffix` and `--update-suffix` CLI options for custom type naming
