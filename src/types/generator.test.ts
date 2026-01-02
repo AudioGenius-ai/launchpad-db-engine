@@ -373,3 +373,84 @@ describe('TypeGeneratorOptions', () => {
     expect(result).toContain('export interface Users {');
   });
 });
+
+describe('Custom Suffix Options', () => {
+  it('uses custom insert suffix for TypeScript interfaces', () => {
+    const schema = createTestSchema();
+    const result = generateTypes(schema, { insertSuffix: 'Create' });
+
+    expect(result).toContain('export interface UsersCreate {');
+    expect(result).toContain('export interface PostsCreate {');
+    expect(result).not.toContain('UsersInsert');
+    expect(result).not.toContain('PostsInsert');
+  });
+
+  it('uses custom update suffix for TypeScript interfaces', () => {
+    const schema = createTestSchema();
+    const result = generateTypes(schema, { updateSuffix: 'Patch' });
+
+    expect(result).toContain('export interface UsersPatch {');
+    expect(result).toContain('export interface PostsPatch {');
+    expect(result).not.toContain('UsersUpdate');
+    expect(result).not.toContain('PostsUpdate');
+  });
+
+  it('uses both custom suffixes together for TypeScript interfaces', () => {
+    const schema = createTestSchema();
+    const result = generateTypes(schema, {
+      insertSuffix: 'New',
+      updateSuffix: 'Edit',
+    });
+
+    expect(result).toContain('export interface UsersNew {');
+    expect(result).toContain('export interface UsersEdit {');
+    expect(result).toContain('export interface PostsNew {');
+    expect(result).toContain('export interface PostsEdit {');
+    expect(result).not.toContain('UsersInsert');
+    expect(result).not.toContain('UsersUpdate');
+  });
+
+  it('uses custom insert suffix for Zod schemas', () => {
+    const schema = createTestSchema();
+    const result = generateZodSchemas(schema, { insertSuffix: 'Create' });
+
+    expect(result).toContain('export const myappUsersCreateSchema = z.object({');
+    expect(result).toContain('export type UsersCreate = z.infer<typeof myappUsersCreateSchema>;');
+    expect(result).not.toContain('myappUsersInsertSchema');
+    expect(result).not.toContain('UsersInsert');
+  });
+
+  it('uses custom update suffix for Zod schemas', () => {
+    const schema = createTestSchema();
+    const result = generateZodSchemas(schema, { updateSuffix: 'Patch' });
+
+    expect(result).toContain('export const myappUsersPatchSchema = z.object({');
+    expect(result).toContain('export type UsersPatch = z.infer<typeof myappUsersPatchSchema>;');
+    expect(result).not.toContain('myappUsersUpdateSchema');
+    expect(result).not.toContain('UsersUpdate');
+  });
+
+  it('uses both custom suffixes together for Zod schemas', () => {
+    const schema = createTestSchema();
+    const result = generateZodSchemas(schema, {
+      insertSuffix: 'New',
+      updateSuffix: 'Edit',
+    });
+
+    expect(result).toContain('export const myappUsersNewSchema = z.object({');
+    expect(result).toContain('export const myappUsersEditSchema = z.object({');
+    expect(result).toContain('export type UsersNew = z.infer<typeof myappUsersNewSchema>;');
+    expect(result).toContain('export type UsersEdit = z.infer<typeof myappUsersEditSchema>;');
+  });
+
+  it('defaults to Insert and Update suffixes when not specified', () => {
+    const schema = createTestSchema();
+    const typesResult = generateTypes(schema);
+    const zodResult = generateZodSchemas(schema);
+
+    expect(typesResult).toContain('UsersInsert');
+    expect(typesResult).toContain('UsersUpdate');
+    expect(zodResult).toContain('myappUsersInsertSchema');
+    expect(zodResult).toContain('myappUsersUpdateSchema');
+  });
+});

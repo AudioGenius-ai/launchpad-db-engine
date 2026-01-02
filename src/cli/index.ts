@@ -163,6 +163,8 @@ export async function generateTypesFromRegistry(
     includeZodSchemas?: boolean;
     includeInsertTypes?: boolean;
     includeUpdateTypes?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
   }
 ): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
@@ -184,6 +186,8 @@ export async function generateTypesFromRegistry(
     const generatorOptions = {
       includeInsertTypes: options.includeInsertTypes ?? true,
       includeUpdateTypes: options.includeUpdateTypes ?? true,
+      insertSuffix: options.insertSuffix,
+      updateSuffix: options.updateSuffix,
     };
 
     const types = generateTypes(schemaMap, generatorOptions);
@@ -194,8 +198,8 @@ export async function generateTypesFromRegistry(
 
     console.log(`Generated types: ${outputPath}`);
     console.log(`  Schemas: ${Array.from(schemaMap.keys()).join(', ')}`);
-    console.log(`  Insert types: ${generatorOptions.includeInsertTypes ? 'yes' : 'no'}`);
-    console.log(`  Update types: ${generatorOptions.includeUpdateTypes ? 'yes' : 'no'}`);
+    console.log(`  Insert types: ${generatorOptions.includeInsertTypes ? 'yes' : 'no'}${options.insertSuffix ? ` (suffix: ${options.insertSuffix})` : ''}`);
+    console.log(`  Update types: ${generatorOptions.includeUpdateTypes ? 'yes' : 'no'}${options.updateSuffix ? ` (suffix: ${options.updateSuffix})` : ''}`);
 
     if (options.includeZodSchemas) {
       const zodSchemas = generateZodSchemas(schemaMap, generatorOptions);
@@ -217,6 +221,8 @@ export interface WatchOptions {
   includeZodSchemas?: boolean;
   includeInsertTypes?: boolean;
   includeUpdateTypes?: boolean;
+  insertSuffix?: string;
+  updateSuffix?: string;
 }
 
 export async function watchAndGenerateTypes(
@@ -289,6 +295,8 @@ export async function watchAndGenerateTypes(
       const generatorOptions = {
         includeInsertTypes: options.includeInsertTypes ?? true,
         includeUpdateTypes: options.includeUpdateTypes ?? true,
+        insertSuffix: options.insertSuffix,
+        updateSuffix: options.updateSuffix,
       };
 
       const types = generateTypes(schemaMap, generatorOptions);

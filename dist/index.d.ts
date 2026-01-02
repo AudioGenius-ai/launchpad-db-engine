@@ -1328,7 +1328,10 @@ declare function createAuthHandler(config?: AuthConfig): AuthHandler;
 interface TypeGeneratorOptions {
     includeInsertTypes?: boolean;
     includeUpdateTypes?: boolean;
+    includeZodSchemas?: boolean;
     omitTenantColumns?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
 }
 declare function generateTypes(schemas: Map<string, SchemaDefinition>, options?: TypeGeneratorOptions): string;
 declare function generateSchemaFromDefinition(schema: SchemaDefinition): string;

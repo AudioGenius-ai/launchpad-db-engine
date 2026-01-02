@@ -37,6 +37,8 @@ interface ParsedArgs {
   zod?: boolean;
   'no-insert'?: boolean;
   'no-update'?: boolean;
+  'insert-suffix'?: string;
+  'update-suffix'?: string;
 }
 
 interface Config {
@@ -78,6 +80,8 @@ Type Generation Options (types:generate):
   --no-insert      Skip Insert type generation
   --no-update      Skip Update type generation
   --zod            Generate Zod validation schemas (requires 'zod' peer dep)
+  --insert-suffix  Suffix for Insert types (default: Insert)
+  --update-suffix  Suffix for Update types (default: Update)
 
   Generated types include:
     - Row types: Full table interface with all columns
@@ -109,6 +113,7 @@ Examples:
   launchpad-db types:generate --watch --output ./src/types.ts
   launchpad-db types:generate --output ./src/types.ts --zod
   launchpad-db types:generate --output ./src/types.ts --no-insert --no-update
+  launchpad-db types:generate --output ./src/types.ts --insert-suffix Create --update-suffix Patch
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -175,6 +180,8 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
       includeZodSchemas: args.zod,
       includeInsertTypes: !args['no-insert'],
       includeUpdateTypes: !args['no-update'],
+      insertSuffix: args['insert-suffix'],
+      updateSuffix: args['update-suffix'],
     });
   } else {
     await generateTypesFromRegistry(config, {
@@ -183,6 +190,8 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
       includeZodSchemas: args.zod,
       includeInsertTypes: !args['no-insert'],
       includeUpdateTypes: !args['no-update'],
+      insertSuffix: args['insert-suffix'],
+      updateSuffix: args['update-suffix'],
     });
   }
 }
@@ -266,6 +275,8 @@ function parseCliArgs(args: string[]): ParsedArgs {
       zod: { type: 'boolean', default: false },
       'no-insert': { type: 'boolean', default: false },
       'no-update': { type: 'boolean', default: false },
+      'insert-suffix': { type: 'string' },
+      'update-suffix': { type: 'string' },
     },
     allowPositionals: true,
   });
