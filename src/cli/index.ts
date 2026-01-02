@@ -15,6 +15,7 @@ import {
 } from '../schema/index.js';
 import { SchemaRegistry } from '../schema/registry.js';
 import { generateTypes, generateZodSchemas } from '../types/generator.js';
+import { generateHooks } from '../types/hooks-generator.js';
 import type { SchemaDefinition } from '../types/index.js';
 
 export interface CliConfig {
@@ -165,6 +166,8 @@ export async function generateTypesFromRegistry(
     includeUpdateTypes?: boolean;
     insertSuffix?: string;
     updateSuffix?: string;
+    includeHooks?: boolean;
+    hooksOutputPath?: string;
   }
 ): Promise<void> {
   const driver = await createDriver({ connectionString: config.databaseUrl });
@@ -213,6 +216,21 @@ export async function generateTypesFromRegistry(
 
       console.log(`Generated Zod schemas: ${zodOutputPath}`);
     }
+
+    if (options.includeHooks) {
+      const hooksOutputPath = options.hooksOutputPath ?? outputPath.replace(/\.ts$/, '.hooks.ts');
+      const typesImportPath = `./${hooksOutputPath.split('/').pop()!.replace('.hooks.ts', '').replace(/\.ts$/, '')}`;
+
+      const hooks = generateHooks(schemaMap, {
+        includeQueryHooks: true,
+        includeMutationHooks: true,
+        typesImportPath: typesImportPath === './' ? './types' : typesImportPath,
+      });
+
+      await writeFile(hooksOutputPath, hooks, 'utf-8');
+
+      console.log(`Generated React Query hooks: ${hooksOutputPath}`);
+    }
   } finally {
     await driver.close();
   }
@@ -227,6 +245,8 @@ export interface WatchOptions {
   includeUpdateTypes?: boolean;
   insertSuffix?: string;
   updateSuffix?: string;
+  includeHooks?: boolean;
+  hooksOutputPath?: string;
 }
 
 export async function watchAndGenerateTypes(
@@ -317,6 +337,22 @@ export async function watchAndGenerateTypes(
         const zodOutputPath = outputPath.replace(/\.ts$/, '.zod.ts');
         await writeFile(zodOutputPath, zodSchemas, 'utf-8');
         console.log(`[${new Date().toLocaleTimeString()}] ${reason} - Regenerated Zod schemas`);
+      }
+
+      if (options.includeHooks) {
+        const hooksOutputPath = options.hooksOutputPath ?? outputPath.replace(/\.ts$/, '.hooks.ts');
+        const typesImportPath = `./${hooksOutputPath.split('/').pop()!.replace('.hooks.ts', '').replace(/\.ts$/, '')}`;
+
+        const hooks = generateHooks(schemaMap, {
+          includeQueryHooks: true,
+          includeMutationHooks: true,
+          typesImportPath: typesImportPath === './' ? './types' : typesImportPath,
+        });
+
+        await writeFile(hooksOutputPath, hooks, 'utf-8');
+        console.log(
+          `[${new Date().toLocaleTimeString()}] ${reason} - Regenerated React Query hooks`
+        );
       }
     } catch (error) {
       console.error(

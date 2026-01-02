@@ -131,6 +131,9 @@ export type {
 export { generateTypes, generateSchemaFromDefinition } from './types/generator.js';
 export type { TypeGeneratorOptions } from './types/generator.js';
 
+export { generateHooks } from './types/hooks-generator.js';
+export type { HooksGeneratorOptions } from './types/hooks-generator.js';
+
 export { DbClient, TransactionContext, createDbClient } from './client.js';
 export type { DbClientOptions } from './client.js';
 
