@@ -39,6 +39,8 @@ interface ParsedArgs {
   'no-update'?: boolean;
   'insert-suffix'?: string;
   'update-suffix'?: string;
+  hooks?: boolean;
+  'hooks-output'?: string;
 }
 
 interface Config {
@@ -82,6 +84,8 @@ Type Generation Options (types:generate):
   --zod            Generate Zod validation schemas (requires 'zod' peer dep)
   --insert-suffix  Suffix for Insert types (default: Insert)
   --update-suffix  Suffix for Update types (default: Update)
+  --hooks          Generate React Query hooks for each table
+  --hooks-output   Output path for hooks file (default: types.hooks.ts)
 
   Generated types include:
     - Row types: Full table interface with all columns
@@ -91,6 +95,13 @@ Type Generation Options (types:generate):
   With --zod flag, also generates:
     - Zod schemas for runtime validation
     - Type inference from schemas (z.infer<typeof schema>)
+
+  With --hooks flag, also generates:
+    - useTableNames() - Query hook for fetching all records
+    - useTableName(id) - Query hook for fetching single record
+    - useCreateTableName() - Mutation hook for insert
+    - useUpdateTableName() - Mutation hook for update
+    - useDeleteTableName() - Mutation hook for delete
 
 Module Options:
   --modules-path   Path to modules directory (default: ./migrations/modules)
@@ -114,6 +125,8 @@ Examples:
   launchpad-db types:generate --output ./src/types.ts --zod
   launchpad-db types:generate --output ./src/types.ts --no-insert --no-update
   launchpad-db types:generate --output ./src/types.ts --insert-suffix Create --update-suffix Patch
+  launchpad-db types:generate --output ./src/types.ts --hooks
+  launchpad-db types:generate --hooks --hooks-output ./src/db-hooks.ts
   launchpad-db schema:register --app-id myapp --name crm --version 1.0.0 --file ./schema.ts
 `);
 }
@@ -182,6 +195,8 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
       includeUpdateTypes: !args['no-update'],
       insertSuffix: args['insert-suffix'],
       updateSuffix: args['update-suffix'],
+      includeHooks: args.hooks,
+      hooksOutputPath: args['hooks-output'],
     });
   } else {
     await generateTypesFromRegistry(config, {
@@ -192,6 +207,8 @@ async function handleTypesGenerate(config: Config, args: ParsedArgs): Promise<vo
       includeUpdateTypes: !args['no-update'],
       insertSuffix: args['insert-suffix'],
       updateSuffix: args['update-suffix'],
+      includeHooks: args.hooks,
+      hooksOutputPath: args['hooks-output'],
     });
   }
 }
@@ -277,6 +294,8 @@ function parseCliArgs(args: string[]): ParsedArgs {
       'no-update': { type: 'boolean', default: false },
       'insert-suffix': { type: 'string' },
       'update-suffix': { type: 'string' },
+      hooks: { type: 'boolean', default: false },
+      'hooks-output': { type: 'string' },
     },
     allowPositionals: true,
   });
