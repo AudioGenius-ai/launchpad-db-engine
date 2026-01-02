@@ -30,6 +30,8 @@ declare function generateTypesFromRegistry(config: CliConfig, options: {
     includeZodSchemas?: boolean;
     includeInsertTypes?: boolean;
     includeUpdateTypes?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
     includeHooks?: boolean;
     hooksOutputPath?: string;
 }): Promise<void>;
@@ -40,6 +42,8 @@ interface WatchOptions {
     includeZodSchemas?: boolean;
     includeInsertTypes?: boolean;
     includeUpdateTypes?: boolean;
+    insertSuffix?: string;
+    updateSuffix?: string;
     includeHooks?: boolean;
     hooksOutputPath?: string;
 }
