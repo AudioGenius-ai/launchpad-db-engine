@@ -192,13 +192,25 @@ await db.schema.register({
 Generate TypeScript types from registered schemas:
 
 ```bash
+# Generate TypeScript interfaces
 launchpad-db types:generate --output ./src/types.ts
+
+# Generate with Zod validation schemas
+launchpad-db types:generate --output ./src/types.ts --zod
+
+# Custom type suffixes
+launchpad-db types:generate --insert-suffix Create --update-suffix Patch
+
+# Skip Insert or Update types
+launchpad-db types:generate --no-insert
+launchpad-db types:generate --no-update
 ```
 
 Generated output:
 
 ```typescript
 export namespace Crm {
+  // Row type - all columns
   export interface Contacts {
     id: string;
     app_id: string;
@@ -209,14 +221,53 @@ export namespace Crm {
     created_at: Date;
   }
 
+  // Insert type - omits auto-generated fields (id, created_at, updated_at)
+  // and tenant columns (app_id, organization_id)
   export interface ContactsInsert {
     first_name: string;
     last_name: string;
     email: string;
   }
 
+  // Update type - all fields optional for partial updates
+  export interface ContactsUpdate {
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+  }
+
   export type TableName = 'contacts';
 }
+```
+
+With `--zod` flag, Zod validation schemas are also generated:
+
+```typescript
+import { z } from 'zod';
+
+export const crmContactsSchema = z.object({
+  id: z.string().uuid(),
+  first_name: z.string(),
+  last_name: z.string(),
+  email: z.string(),
+  created_at: z.coerce.date(),
+});
+
+export const crmContactsInsertSchema = z.object({
+  first_name: z.string(),
+  last_name: z.string(),
+  email: z.string(),
+});
+
+export const crmContactsUpdateSchema = z.object({
+  first_name: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+});
+
+export type Contacts = z.infer<typeof crmContactsSchema>;
+export type ContactsInsert = z.infer<typeof crmContactsInsertSchema>;
+export type ContactsUpdate = z.infer<typeof crmContactsUpdateSchema>;
 ```
 
 ## Multi-Database Support
